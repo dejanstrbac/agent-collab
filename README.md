@@ -1,0 +1,185 @@
+# agent-collab
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+A lightweight, zero-dependency collaboration harness for autonomous AI coding agents (Claude, Gemini, Cursor, Antigravity, etc.) to pair program via **git worktree isolation**, an **append-only chat log**, and a **shared markdown status board**.
+
+---
+
+## Why agent-collab?
+
+Running multiple AI coding agents concurrently in the same workspace leads to race conditions: agents overwrite each other's uncommitted edits, clobber shared test databases, and lack a reliable feedback loop.
+
+`agent-collab` solves this with a simple, project-agnostic architecture:
+- **Worktree Isolation**: Every agent gets its own git worktree (`../<repo>-<slug>-<role>`) on its own branch.
+- **Resource Isolation**: Per-worktree environment variables via `.collab.env` (and optional container/DB isolation hooks via `isolate.sh`).
+- **Markdown State Machine**: A central `board.md` tracks findings, RED test hashes, GREEN fix hashes, and review sign-offs.
+- **Append-Only Communication**: Agents coordinate via `chat.log` with cursor tracking so restarted or late-joining agents never miss messages.
+- **Strict Adversarial Protocol**: Reviewers inspect committed code only, independently verify that tests fail (RED) before the fix is applied, and reject fixes that add new hazards.
+- **Zero Pollution**: `collab-init.sh` automatically adds `agent-collab/` and `.collab.env` to `.git/info/exclude` so the harness never leaks into project commits or pull requests.
+
+---
+
+## Directory Structure
+
+```text
+agent-collab/
+├── README.md               # Documentation and prompt guides
+├── protocol.md             # Rules every agent must follow
+├── roles/                  # Role-specific system instructions
+│   ├── implementer.md      # Builds fixes, claims issues, runs setup
+│   ├── reviewer.md         # Adversarial code review & test validation
+│   └── verifier.md         # Dedicated test authoring (optional)
+├── collab-init.sh          # Initializes session, branches, worktrees & board
+├── collab-clean.sh         # Teardown worktrees and resources
+├── collab-say.sh           # Appends message to chat & updates board
+├── collab-watch.sh         # Monitors chat log with per-agent cursor tracking
+├── collab-board.sh         # Programmatic reader/updater for board.md
+├── isolation.example.md    # Template for documenting project resource isolation
+└── isolate.example.sh      # Example hook for dynamic resource provisioning
+```
+
+---
+
+## Quickstart
+
+### 1. Add `agent-collab` to your repository
+
+Simply clone or copy `agent-collab` into your repository root:
+
+```bash
+git clone https://github.com/dejanstrbac/agent-collab.git agent-collab
+```
+
+*(Note: `collab-init.sh` automatically adds `agent-collab/` to your repository's local `.git/info/exclude`, so it stays uncommitted.)*
+
+### 2. Configure Resource Isolation (Optional)
+
+If your project's tests share state (such as PostgreSQL databases, Redis, or listening ports):
+- Copy `isolation.example.md` to `isolation.md` and document which resources tests use.
+- Copy `isolate.example.sh` to `isolate.sh` to dynamically provision isolated containers or ports per role.
+- If your tests require no isolation (e.g. in-memory unit tests), you can omit `isolate.sh`.
+
+### 3. Launch Your Agents
+
+Start each agent in its own terminal or agent conversation window using the recommended prompt recipe below.
+
+---
+
+## Autonomous Prompt Recipe
+
+When working with pair-programming agents, models may prematurely yield control to the user while waiting for the other agent to respond. 
+
+Use this prompt template to keep agents operating autonomously in a continuous watch loop until both sides reach mutual agreement:
+
+```text
+/goal Collaborate using agent-collab as [implementer | reviewer] on session <slug>.
+Read agent-collab/protocol.md and agent-collab/roles/<role>.md and follow them.
+Task: <description of task, or list of scan findings to fix>.
+
+Run autonomously in a continuous watch loop: do not stop or yield turns until all items on board.md are marked REVIEW-OK (or Deferred) and both agents have exchanged DONE in chat.log. When waiting for the other agent, run collab-watch.sh rather than exiting.
+```
+
+---
+
+## Roles & Responsibilities
+
+| Role | Branch | Worktree | Responsibilities |
+|---|---|---|---|
+| **`implementer`** | `<slug>` | `../<repo>-<slug>-implementer` | Runs session setup (`collab-init.sh`), writes fixes, claims issues, cherry-picks reviewer contributions, maintains feature branch. |
+| **`reviewer`** | `<slug>-reviewer` | `../<repo>-<slug>-reviewer` | Adversarial auditor. Independently tests RED hashes against pre-fix code, approves with `REVIEW-OK(<hash>)` or requests changes with `REVIEW-CHANGES(<hash>)`. May implement delegated tasks. |
+| **`verifier`** | `<slug>-verifier` | `../<repo>-<slug>-verifier` | (Optional) Writes reproduction tests and measures performance or regression boundaries. |
+
+---
+
+## Communication Protocol & State Flow
+
+Agents never modify another agent's branch directly. All coordination happens through `chat.log` and `board.md`.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Implementer
+    participant Reviewer
+    
+    Implementer->>Implementer: collab-init.sh (creates branches & worktrees)
+    Implementer->>Reviewer: [implementer] #- FYI setup done
+    Reviewer->>Implementer: [reviewer] #1 FYI issue found: description
+    Implementer->>Implementer: Commit RED test (hash: 1111111)
+    Implementer->>Reviewer: [implementer] #1 RED(1111111) test proves bug
+    Implementer->>Implementer: Commit GREEN fix (hash: 2222222)
+    Implementer->>Reviewer: [implementer] #1 GREEN(2222222) fix implemented
+    Reviewer->>Reviewer: Verify RED test fails on pre-fix code
+    Reviewer->>Reviewer: Verify GREEN fix passes full suite
+    Reviewer->>Implementer: [reviewer] #1 REVIEW-OK(2222222)
+    Implementer->>Reviewer: [implementer] #- DONE all approved
+```
+
+### Supported Status Tags
+
+* `#<item> CLAIM files: <paths>`: Claims exclusive ownership of file paths for an item.
+* `#<item> RED(<hash>) <summary>`: Announces a test commit that fails against current code.
+* `#<item> GREEN(<hash>) <summary>`: Announces a fix commit that resolves the issue.
+* `#<item> REVIEW-OK(<hash>) <summary>`: Approves a fix commit. Updates `board.md`.
+* `#<item> REVIEW-CHANGES(<hash>) <summary>`: Rejects a fix with actionable required changes.
+* `#<item> DELEGATE(<role>) files: <paths>`: Hands off implementation of a specific item.
+* `#- DONE <summary>`: Final agreement once all items are reviewed and clean.
+
+---
+
+## CLI Reference
+
+### `collab-init.sh <slug> [base-ref] [roles...]`
+Initializes a new session:
+- Creates git branches (`<slug>`, `<slug>-reviewer`, etc.) from `base-ref` (default: `HEAD`).
+- Creates sibling worktrees at `../<repo>-<slug>-<role>`.
+- Generates `sessions/<slug>/board.md` and `sessions/<slug>/chat.log`.
+- Adds `agent-collab/` and `.collab.env` to `.git/info/exclude`.
+
+```bash
+./agent-collab/collab-init.sh fix-auth-cookies main implementer reviewer
+```
+
+### `collab-say.sh <slug> <role> <item|-> <STATUS> [text...]`
+Appends a message to `chat.log` and automatically updates status columns on `board.md`:
+
+```bash
+./agent-collab/collab-say.sh fix-auth-cookies implementer 1 'GREEN(a1b2c3d)' "cleared session cookie"
+./agent-collab/collab-say.sh fix-auth-cookies reviewer 1 'REVIEW-OK(a1b2c3d)' "verified RED pre-fix and GREEN post-fix"
+```
+
+### `collab-watch.sh <slug> <role> [--once]`
+Streams unread messages from other agents. Uses `.cursor-<role>` tracking so late-starting or restarted agents never miss history:
+
+```bash
+# Continuous streaming (used by background monitors):
+./agent-collab/collab-watch.sh fix-auth-cookies implementer
+
+# Single-turn check (used by polling agents):
+./agent-collab/collab-watch.sh fix-auth-cookies implementer --once
+```
+
+### `collab-board.sh <slug> <add|update|get> ...`
+Programmatic interaction with `board.md`:
+
+```bash
+./agent-collab/collab-board.sh fix-auth-cookies add 1 High "server panics on malformed cookie"
+./agent-collab/collab-board.sh fix-auth-cookies update 1 fix "a1b2c3d"
+./agent-collab/collab-board.sh fix-auth-cookies get 1
+```
+
+### `collab-clean.sh <slug> [--keep-session]`
+Tears down a session when work is complete:
+- Removes git worktrees and prunes worktree references.
+- Invokes `./isolate.sh drop` to release isolated resources.
+- Preserves git branches for merge or pull request creation.
+
+```bash
+./agent-collab/collab-clean.sh fix-auth-cookies
+```
+
+---
+
+## License
+
+MIT License. Copyright (c) 2026 Dejan Štrbac.

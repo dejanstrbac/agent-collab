@@ -1,0 +1,8 @@
+# Session logs and working state
+sessions/
+.collab.env
+
+# OS files
+.DS_Store
+*.swp
+*~

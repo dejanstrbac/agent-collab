@@ -22,28 +22,51 @@ else
   printf '[%s] #%s %s\n' "$role" "${item#\#}" "$status" >> "$log"
 fi
 
-# Auto-update board.md when status reports a test, fix, or review result
+extract_hash() {
+  local str="$1"
+  local h
+  # Check for parentheses: (abc1234)
+  h=$(echo "$str" | sed -n 's/.*(\([0-9a-fA-F]\{7,40\}\)).*/\1/p')
+  if [ -n "$h" ]; then echo "$h"; return 0; fi
+  # Check for standalone 7-40 hex string
+  h=$(echo "$str" | grep -oE '\b[0-9a-fA-F]{7,40}\b' | head -n1 || true)
+  if [ -n "$h" ]; then echo "$h"; return 0; fi
+  return 1
+}
+
+# Auto-update board.md when status reports a test, fix, review, or deferral result
 clean_item="${item#\#}"
 if [ "$clean_item" != "-" ] && [ -x "$kit/collab-board.sh" ] && [ -f "$kit/sessions/$slug/board.md" ]; then
   case "$status" in
-    RED\(*)
-      hash=$(echo "$status" | sed -n 's/.*(\(.*\)).*/\1/p')
+    RED* )
+      hash=$(extract_hash "$status" || extract_hash "$text" || true)
       [ -n "$hash" ] && "$kit/collab-board.sh" "$slug" update "$clean_item" test "\`$hash\`" 2>/dev/null || true
       ;;
-    GREEN\(*)
-      hash=$(echo "$status" | sed -n 's/.*(\(.*\)).*/\1/p')
+    GREEN* )
+      hash=$(extract_hash "$status" || extract_hash "$text" || true)
       [ -n "$hash" ] && "$kit/collab-board.sh" "$slug" update "$clean_item" fix "\`$hash\`" 2>/dev/null || true
       ;;
-    REVIEW-OK\(*)
-      hash=$(echo "$status" | sed -n 's/.*(\(.*\)).*/\1/p')
-      [ -n "$hash" ] && "$kit/collab-board.sh" "$slug" update "$clean_item" review "\`$hash\` OK" 2>/dev/null || true
+    REVIEW-OK* )
+      hash=$(extract_hash "$status" || extract_hash "$text" || true)
+      if [ -n "$hash" ]; then
+        "$kit/collab-board.sh" "$slug" update "$clean_item" review "\`$hash\` OK" 2>/dev/null || true
+      else
+        "$kit/collab-board.sh" "$slug" update "$clean_item" review "OK" 2>/dev/null || true
+      fi
       ;;
-    REVIEW-CHANGES\(*)
-      hash=$(echo "$status" | sed -n 's/.*(\(.*\)).*/\1/p')
-      [ -n "$hash" ] && "$kit/collab-board.sh" "$slug" update "$clean_item" review "\`$hash\` CHANGES" 2>/dev/null || true
+    REVIEW-CHANGES* )
+      hash=$(extract_hash "$status" || extract_hash "$text" || true)
+      if [ -n "$hash" ]; then
+        "$kit/collab-board.sh" "$slug" update "$clean_item" review "\`$hash\` CHANGES" 2>/dev/null || true
+      else
+        "$kit/collab-board.sh" "$slug" update "$clean_item" review "CHANGES" 2>/dev/null || true
+      fi
       ;;
-    REVIEW-OK)
-      "$kit/collab-board.sh" "$slug" update "$clean_item" review "OK" 2>/dev/null || true
+    DEFERRED*|DEFER )
+      reason=$(echo "$status" | sed -n 's/.*(\(.*\)).*/\1/p')
+      [ -z "$reason" ] && reason="$text"
+      [ -z "$reason" ] && reason="Deferred"
+      "$kit/collab-board.sh" "$slug" defer "$clean_item" "$reason" "$role" 2>/dev/null || true
       ;;
   esac
 fi

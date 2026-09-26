@@ -36,7 +36,8 @@ agent-collab/
 ├── collab-watch.sh         # Monitors chat log with per-agent cursor tracking
 ├── collab-board.sh         # Programmatic reader/updater for board.md
 ├── isolation.example.md    # Template for documenting project resource isolation
-└── isolate.example.sh      # Example hook for dynamic resource provisioning
+├── isolate.example.sh      # Example hook for dynamic resource provisioning
+└── worktree-setup.example.sh # Example hook for symlinking shared dependencies
 ```
 
 ---
@@ -53,12 +54,13 @@ git clone https://github.com/dejanstrbac/agent-collab.git agent-collab
 
 *(Note: `collab-init.sh` automatically adds `agent-collab/` to your repository's local `.git/info/exclude`, so it stays uncommitted.)*
 
-### 2. Configure Resource Isolation (Optional)
+### 2. Configure Resource Isolation & Worktree Setup (Optional)
 
 If your project's tests share state (such as PostgreSQL databases, Redis, or listening ports):
 - Copy `isolation.example.md` to `isolation.md` and document which resources tests use.
 - Copy `isolate.example.sh` to `isolate.sh` to dynamically provision isolated containers or ports per role.
-- If your tests require no isolation (e.g. in-memory unit tests), you can omit `isolate.sh`.
+- If your tests require `node_modules`, vendor files, or build caches in new worktrees, copy `worktree-setup.example.sh` to `worktree-setup.sh` to symlink them automatically upon worktree creation.
+- If your tests require no isolation (e.g. in-memory unit tests), you can omit these hook scripts.
 
 ### 3. Launch Your Agents
 
@@ -77,7 +79,7 @@ Use this prompt template to keep agents operating autonomously in a continuous w
 Read agent-collab/protocol.md and agent-collab/roles/<role>.md and follow them.
 Task: <description of task, or list of scan findings to fix>.
 
-Run autonomously in a continuous watch loop: do not stop or yield turns until all items on board.md are marked REVIEW-OK (or Deferred) and both agents have exchanged DONE in chat.log. When waiting for the other agent, run collab-watch.sh rather than exiting.
+Run autonomously in a continuous watch loop: do not stop or yield turns until all items on board.md are marked REVIEW-OK (or Deferred) and both agents have exchanged DONE in chat.log. When waiting for the other agent, run collab-watch.sh <slug> <role> --wait 30 rather than exiting.
 ```
 
 ---
@@ -123,7 +125,11 @@ sequenceDiagram
 * `#<item> REVIEW-OK(<hash>) <summary>`: Approves a fix commit. Updates `board.md`.
 * `#<item> REVIEW-CHANGES(<hash>) <summary>`: Rejects a fix with actionable required changes.
 * `#<item> DELEGATE(<role>) files: <paths>`: Hands off implementation of a specific item.
+* `#<item> DEFERRED(<reason>)`: Moves an agreed non-actionable issue from Issues to the Deferred table.
 * `#- DONE <summary>`: Final agreement once all items are reviewed and clean.
+
+### Commit Hygiene
+Agents must commit only explicit file paths (`git add <files>`) and **must not add attribution trailers** (such as `Co-authored-by:`, `Signed-off-by:`, or AI assistant markers) to commit messages unless explicitly requested by the user.
 
 ---
 
@@ -148,23 +154,27 @@ Appends a message to `chat.log` and automatically updates status columns on `boa
 ./agent-collab/collab-say.sh fix-auth-cookies reviewer 1 'REVIEW-OK(a1b2c3d)' "verified RED pre-fix and GREEN post-fix"
 ```
 
-### `collab-watch.sh <slug> <role> [--once]`
+### `collab-watch.sh <slug> <role> [--once | --wait [seconds]]`
 Streams unread messages from other agents. Uses `.cursor-<role>` tracking so late-starting or restarted agents never miss history:
 
 ```bash
-# Continuous streaming (used by background monitors):
-./agent-collab/collab-watch.sh fix-auth-cookies implementer
+# Block for up to 30s waiting for a peer reply, exits immediately when received (ideal for LLM tool use):
+./agent-collab/collab-watch.sh fix-auth-cookies implementer --wait 30
 
-# Single-turn check (used by polling agents):
+# Single-turn check (exits immediately):
 ./agent-collab/collab-watch.sh fix-auth-cookies implementer --once
+
+# Continuous streaming (used by background daemon monitors):
+./agent-collab/collab-watch.sh fix-auth-cookies implementer
 ```
 
-### `collab-board.sh <slug> <add|update|get> ...`
+### `collab-board.sh <slug> <add|update|defer|get> ...`
 Programmatic interaction with `board.md`:
 
 ```bash
 ./agent-collab/collab-board.sh fix-auth-cookies add 1 High "server panics on malformed cookie"
 ./agent-collab/collab-board.sh fix-auth-cookies update 1 fix "a1b2c3d"
+./agent-collab/collab-board.sh fix-auth-cookies defer 1 "Not a bug per spec" "reviewer"
 ./agent-collab/collab-board.sh fix-auth-cookies get 1
 ```
 

@@ -22,3 +22,9 @@ source .collab.env
 ```
 
 If your project requires dedicated containers or ports per role, implement them in `isolate.sh`.
+
+## Common Isolation Pitfalls
+
+- **Subprocesses & Static Config Files**: Tests that spawn compiled CLI binaries or daemons often read static configuration files (e.g. `config-test.toml`) directly, bypassing environment variable overrides set in `.collab.env`. If your project has tests that bypass environment variables, document them here so agents avoid running them concurrently or misdiagnosing them as code regressions.
+- **Shared Dependencies & Node Modules**: `git worktree add` creates a clean working directory without untracked artifacts like `node_modules` or `.env`. Use `worktree-setup.sh` to automatically symlink or copy these into new worktrees upon creation.
+

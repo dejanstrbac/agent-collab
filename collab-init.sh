@@ -55,6 +55,13 @@ for role in "${roles[@]}"; do
     echo "created worktree $wt ($branch)"
   fi
 
+  # Run optional project worktree setup hook (e.g. symlinking node_modules, build caches)
+  if [ -x "$kit/worktree-setup.sh" ]; then
+    "$kit/worktree-setup.sh" "$wt" "$role" "$root" || echo "warning: worktree-setup.sh failed for $role" >&2
+  elif [ -x "$root/worktree-setup.sh" ]; then
+    "$root/worktree-setup.sh" "$wt" "$role" "$root" || echo "warning: worktree-setup.sh failed for $role" >&2
+  fi
+
   env=""
   if [ -x "$kit/isolate.sh" ]; then
     name=$(echo "${repo}_${slug}_${role}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9_\n' '_')

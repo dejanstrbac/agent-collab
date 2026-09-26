@@ -34,6 +34,8 @@ running tests.
   without any network push or fetch.
 - Only the implementer commits to the task branch. Other agents commit to their own branch
   and give the commit hash; the implementer cherry-picks it.
+- Commit only explicit paths (`git add <paths>`), never `git add -A` or `.`.
+- Do not add attribution trailers (such as `Co-authored-by:`, `Signed-off-by:`, or AI assistant metadata) to commit messages unless explicitly requested by the user.
 - Never use `git stash`. Never force-push or push anywhere without the user asking.
 - Never touch resources the isolation notes mark as shared or off-limits.
 
@@ -45,13 +47,14 @@ it. Use the absolute paths from the board: they are shared by every worktree.
 - **Post** with `<KIT>/collab-say.sh <slug> <role> <item|-> <STATUS> [text...]`. It appends one
   line to `chat.log` and automatically updates the corresponding status columns in `board.md`.
 - **Add new issues** with `<KIT>/collab-board.sh <slug> add <item> <severity> "<scenario>"`.
+- **Defer agreed issues** with `<KIT>/collab-board.sh <slug> defer <item> "<reason>" "<agreed_by>"` or `collab-say.sh <slug> <role> <item> 'DEFERRED(<reason>)'`.
 - **Listen** by running `<KIT>/collab-watch.sh <slug> <role>`. It tracks read position in
   `<KIT>/sessions/<slug>/.cursor-<role>`, so late-starting or restarted agents never miss history.
-  - In background watchers (e.g. Claude Code Monitor): run `collab-watch.sh <slug> <role>` continuously.
-  - In polling turns: run `collab-watch.sh <slug> <role> --once` at the start of each turn.
+  - In background watchers: run `collab-watch.sh <slug> <role>` continuously.
+  - In tool-calling/polling turns: run `collab-watch.sh <slug> <role> --wait [seconds]` to block until peer replies, or `--once` to check immediately.
 - Line format: `[role] #<item> <STATUS> <text>`
   STATUS is one of: `CLAIM`, `RED(<hash>)`, `GREEN(<hash>)`, `REVIEW-OK(<hash>)`,
-  `REVIEW-CHANGES(<hash>)`, `DELEGATE(<role>)`, `BLOCKED`, `FYI`, `DONE`. Use `#-` when no item applies.
+  `REVIEW-CHANGES(<hash>)`, `DELEGATE(<role>)`, `DEFERRED(<reason>)`, `BLOCKED`, `FYI`, `DONE`. Use `#-` when no item applies.
 - Cite a commit hash for any code you refer to. Nobody reviews or comments on uncommitted work.
 - `board.md` has one row per issue. `collab-say.sh` updates standard statuses automatically; edit
   only the cells your role owns if making manual adjustments.

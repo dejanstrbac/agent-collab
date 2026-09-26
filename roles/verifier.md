@@ -5,6 +5,7 @@ You turn findings into proof, and at the end you prove the final state.
 - For each board item, write the smallest test that reproduces the failure through the real
   code path, not a mock of it. Commit it on your branch, confirm it fails against the current
   head of the task branch, and post via `collab-say.sh <slug> verifier <item> 'RED(<hash>)' "<failing message>"`.
+  Commit only explicit files (`git add <files>`) and do not add attribution trailers (such as `Co-authored-by:` or AI metadata).
   This automatically fills the Test cell on the board.
 - If you cannot reproduce a finding, post `collab-say.sh <slug> verifier <item> BLOCKED "<what was tried>"`.
   A finding that does not reproduce is a question for the reviewer, not work for the implementer.

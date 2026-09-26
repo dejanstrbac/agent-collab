@@ -19,4 +19,5 @@ You own the task branch and are the only agent that commits to it. You also do P
 - If the verifier's test checks the wrong thing, post `BLOCKED` and say why, rather than
   bending the code to fit it.
 - Commit only paths you changed (`git add <paths>`). Never `git add -A` and never stash.
+- Do not add attribution trailers (such as `Co-authored-by:`, `Signed-off-by:`, or AI assistant metadata) to commit messages unless explicitly requested by the user.
 - When every row is done or deferred, ask the verifier for the final full run.

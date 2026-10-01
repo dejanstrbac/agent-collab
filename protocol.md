@@ -45,7 +45,8 @@ All messages go through `<KIT>/sessions/<slug>/chat.log`. Status lives on `board
 it. Use the absolute paths from the board: they are shared by every worktree.
 
 - **Post** with `<KIT>/collab-say.sh <slug> <role> <item|-> <STATUS> [text...]`. It appends one
-  line to `chat.log`. RED, GREEN, review and deferral results also update `board.md`; claims,
+  line to `chat.log`. RED, GREEN, review, delegation and deferral results also update
+  `board.md`. A named delegate's CLAIM accepts the offered scope; ordinary file claims,
   dependency reports and delegation requests remain in the log. A board update failure is
   visible and returns nonzero even though the message was logged. Read the error before
   retrying, so you do not accidentally post the same message twice.
@@ -67,6 +68,14 @@ it. Use the absolute paths from the board: they are shared by every worktree.
 - Cite a commit hash for any code you refer to. Nobody reviews or comments on uncommitted work.
 - `board.md` has one row per issue. `collab-say.sh` updates standard statuses automatically; edit
   only the cells your role owns if making manual adjustments.
+- The Review cell keeps each role's latest named verdict and hash. A newer verdict by one
+  role does not overwrite another role's review; check that two independent approvals name
+  the same implementation hash before integration. The display never declares DONE for you.
+  Existing unlabelled verdicts remain visible as `legacy`, with no invented role attribution.
+- Messages serialize their append and board projection. A reply cannot overtake the pending
+  delegation it answers. Lock timeouts are visible; never remove another process's lock just
+  because time passed. Watch read or cursor-write errors are fatal and retain the prior cursor;
+  messages printed before a write error may be replayed when you retry.
 - Say nothing when you have nothing to add. No acknowledgements, no thanks, no recaps.
 - New facts from the user or from production go into `chat.log` as `FYI` straight away.
 
@@ -116,14 +125,67 @@ the implementer's work or the overall session has completed.
 Diagnostics, reproduction tests and evidence gathering may proceed in your own isolated
 worktree. Production edits require the role's ownership, an explicit delegation or direct
 user authorization. Never review uncommitted peer edits. A delegated fix must receive an
-independent verdict from another role; its author cannot approve their own fix.
+independent verdicts from two parties other than its author; the author cannot approve their own fix.
+
+## Delegation
+
+The implementer may hand a bounded item to the reviewer or the verifier: when an item can
+proceed in parallel on separate files, or when a peer would otherwise wait with nothing to
+review. Delegation moves the writing, never the acceptance.
+
+1. **Offer.** The implementer posts one line,
+   `collab-say.sh <slug> implementer <item> 'DELEGATE(<role>)' "<contract>"`, whose contract
+   names:
+   - scope: the files or area the delegate may change, and what is out of scope;
+   - base: the commit to branch from;
+   - RED: the failing test to make pass (its hash), or the scenario to reproduce first;
+   - done: the observable criteria (tests, lanes, gates) that end the item;
+   - reviewers: the two parties who will review the result (see "Who reviews what").
+   Delegate only items no other agent or running job owns, and only one item per delegate at a
+   time unless the contract says otherwise.
+2. **Accept.** The delegate answers with `CLAIM` naming its branch and worktree, or with
+   `BLOCKED` and the reason it cannot take the item. Until the `CLAIM` arrives, the item stays the
+   implementer's. A delegated item has one owner at a time: the implementer does not edit the
+   claimed scope, and the delegate changes nothing outside it. Ask in chat before widening it.
+3. **Progress.** The delegate commits on its own branch and posts each step with its hash
+   (`RED`, `GREEN`, or `FYI` with the hash). A branch whose head is only an imported `RED` is in
+   progress, not stale. A delegate that must stop posts `BLOCKED` with its branch state, so the
+   implementer can arrange a confirmed handback from the last commit.
+4. **Hand back.** The delegate posts `GREEN(<hash>)` with its RED proof, tests and gates.
+   Corrections after review are new hashes, reviewed narrowly.
+5. **Integrate.** After the reviews below, the implementer cherry-picks or merges exactly the
+   reviewed hashes and posts the integrated hash.
+6. **Withdraw.** Either side may end a delegation with an `FYI` saying why. Coordinate the stop and acknowledge the
+   handback before resuming edits; a withdrawal message alone does not prove a live job stopped.
+   The item returns to the implementer with whatever is committed.
+
+## Who reviews what
+
+Every implementation is reviewed by at least two parties other than its author before it is
+integrated. Nothing is accepted blindly, whoever wrote it.
+
+| Author | Reviewed by |
+|---|---|
+| implementer, or a subagent or job the implementer runs | reviewer and verifier |
+| reviewer, on a delegated item | implementer and verifier |
+| verifier, on a delegated item | implementer and reviewer |
+
+A review reads the diff with its test, reruns the RED against the parent and the tests at the
+hash, and is posted as `REVIEW-OK(<hash>)` or `REVIEW-CHANGES(<hash>)`; the implementer posts
+its reviews of delegated work on the channel like any reviewer. A review covers only the hash it
+names. In a session without a verifier, the second review comes from an independent agent that
+did not write the change (for example one the implementer starts only to review it).
+The Review cell records each role's latest verdict and its hash; verdicts for different hashes
+are visibly distinct. A single verdict or the board display alone never establishes completion;
+check the matching-hash approvals and independence in chat.
 
 ## When an item is done
 
 1. A test fails without the fix (`RED`). This is proven by running it against the code before
    the fix, not just asserted.
 2. The fix is committed, and that test and the related tests pass (`GREEN`).
-3. The reviewer has posted `REVIEW-OK` for that hash.
+3. Two parties other than its author have posted `REVIEW-OK` for that hash (see "Who reviews
+   what").
 
 An item may instead be deferred, with a written reason that all agents accept. The task is
 done when every row is done or deferred and the verifier's full run on the final head passes

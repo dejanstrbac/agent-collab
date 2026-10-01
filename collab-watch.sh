@@ -70,6 +70,9 @@ done
 locked=1
 
 seen=0
+if [ -e "$cursor" ] && [ ! -f "$cursor" ]; then
+  echo "cursor is not a regular file: $cursor" >&2; exit 1
+fi
 if [ -f "$cursor" ]; then
   seen=$(cat "$cursor")
   [[ $seen =~ ^[0-9]+$ ]] && [ "${#seen}" -le 12 ] || {
@@ -79,21 +82,36 @@ if [ -f "$cursor" ]; then
 fi
 
 read_new() {
-  local now lines found=0
-  now=$(wc -l < "$log" | tr -d ' ')
+  local now lines found=0 reset=0
+  if ! now=$(wc -l < "$log"); then
+    echo "cannot count log: $log; cursor left unchanged" >&2; return 2
+  fi
+  now=${now//[[:space:]]/}
+  [[ $now =~ ^[0-9]+$ ]] && [ "${#now}" -le 12 ] || {
+    echo "invalid log line count; cursor left unchanged" >&2; return 2;
+  }
   # A shortened replacement log has new history, not an already-read prefix.
-  if [ "$now" -lt "$seen" ]; then seen=0; fi
+  if [ "$now" -lt "$seen" ]; then seen=0; reset=1; fi
   if [ "$now" -gt "$seen" ]; then
-    lines=$(sed -n "$((seen + 1)),${now}p" "$log" | grep -v "^\[$role\] " || true)
+    if ! lines=$(awk -v first="$((seen + 1))" -v last="$now" -v own="$role" '
+      NR >= first && NR <= last && index($0, "[" own "] ") != 1 { print }
+    ' "$log"); then
+      echo "cannot read log: $log; cursor left unchanged" >&2; return 2
+    fi
     if [ -n "$lines" ]; then
-      printf '%s\n' "$lines"
+      if ! printf '%s\n' "$lines"; then
+        echo "cannot deliver log output; cursor left unchanged" >&2; return 2
+      fi
       found=1
     fi
   fi
-  if [ "$now" -ne "$seen" ] || [ ! -f "$cursor" ]; then
-    tmp=$(mktemp "$session/.cursor.XXXXXX")
-    printf '%s\n' "$now" > "$tmp"
-    mv "$tmp" "$cursor"
+  if [ "$now" -ne "$seen" ] || [ "$reset" -eq 1 ] || [ ! -f "$cursor" ]; then
+    if ! tmp=$(mktemp "$session/.cursor.XXXXXX"); then
+      echo "cannot create cursor temporary file; cursor left unchanged" >&2; return 2
+    fi
+    if ! printf '%s\n' "$now" > "$tmp" || ! mv "$tmp" "$cursor"; then
+      echo "cannot persist cursor: $cursor; previous cursor retained" >&2; return 2
+    fi
     tmp=""
   fi
   seen=$now
@@ -101,16 +119,21 @@ read_new() {
 }
 
 case $mode in
-  once) read_new || true ;;
+  once)
+    if read_new; then :; else result=$?; [ "$result" -eq 1 ] || exit "$result"; fi
+    ;;
   wait)
     start_time=$(date +%s)
     while true; do
-      if read_new; then break; fi
+      if read_new; then break; else result=$?; [ "$result" -eq 1 ] || exit "$result"; fi
       [ $(( $(date +%s) - start_time )) -lt "$wait_timeout" ] || break
       sleep 1
     done
     ;;
   continuous)
-    while true; do read_new || true; sleep 2; done
+    while true; do
+      if read_new; then :; else result=$?; [ "$result" -eq 1 ] || exit "$result"; fi
+      sleep 2
+    done
     ;;
 esac

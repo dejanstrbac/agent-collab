@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# collab-board.sh <slug> <add|update|defer|get> [args...]
+# collab-board.sh <slug> <add|update|review|delegate|claim|defer|get> [args...]
 # Mutations serialize their whole read/modify/rename transaction.
 set -euo pipefail
 
@@ -7,6 +7,9 @@ usage() {
   cat <<'EOF' >&2
 usage: collab-board.sh <slug> add <item> <severity> <scenario...>
        collab-board.sh <slug> update <item> <test|fix|review|notes> <value...>
+       collab-board.sh <slug> review <item> <role> <hash|-> <OK|CHANGES>
+       collab-board.sh <slug> delegate <item> <role>
+       collab-board.sh <slug> claim <item> <role> <location...>
        collab-board.sh <slug> defer <item> <reason> <agreed_by>
        collab-board.sh <slug> get <item>
 EOF
@@ -18,6 +21,9 @@ slug=$1; action=$2; shift 2
 [[ $slug =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "invalid session slug" >&2; exit 2; }
 case $action in
   add|update|defer) [ $# -ge 3 ] || usage ;;
+  review) [ $# -eq 4 ] || usage ;;
+  delegate) [ $# -eq 2 ] || usage ;;
+  claim) [ $# -ge 3 ] || usage ;;
   get) [ $# -eq 1 ] || usage ;;
   *) usage ;;
 esac
@@ -118,6 +124,62 @@ case $action in
         print
       }
     ' "$board" > "$tmp"
+    ;;
+  review|delegate|claim)
+    require_item issues
+    role=$1; shift
+    [[ $role =~ ^[a-z][a-z0-9_-]*$ ]] || { echo "invalid role" >&2; exit 2; }
+    if [ "$action" = review ]; then
+      hash=$1; verdict=$2
+      [[ $hash == "-" || $hash =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "invalid review hash" >&2; exit 2; }
+      case $verdict in OK|CHANGES) ;; *) echo "invalid review verdict" >&2; exit 2 ;; esac
+      tick=$(printf '\140')
+      if [ "$hash" = "-" ]; then val="$role: $verdict"; else val="$role: $tick$hash$tick $verdict"; fi
+      COLLAB_BOARD_VALUE="$val" awk -F'|' -v OFS='|' -v it="$item" -v who="$role" '
+        /^## Issues([[:space:]]|$)/ { in_issues=1 }
+        /^## / && !/^## Issues([[:space:]]|$)/ { in_issues=0 }
+        {
+          clean=$2; gsub(/^[ \t]+|[ \t]+$/, "", clean)
+          if (in_issues && /^\|/ && clean == it) {
+            result=""; count=split($7, entries, "<br>")
+            for (i=1; i<=count; i++) {
+              entry=entries[i]; gsub(/^[ \t]+|[ \t]+$/, "", entry)
+              if (entry == "") continue
+              # Old cells do not identify which role wrote their last verdict.
+              if (entry !~ /^[a-z][a-z0-9_-]*: /) entry="legacy: " entry
+              if (index(entry, who ": ") == 1) continue
+              result=result (result == "" ? "" : "<br>") entry
+            }
+            result=result (result == "" ? "" : "<br>") ENVIRON["COLLAB_BOARD_VALUE"]
+            $7=" " result " "
+          }
+          print
+        }
+      ' "$board" > "$tmp"
+    else
+      if [ "$action" = delegate ]; then val="delegated to $role (awaiting CLAIM)"
+      else
+        location=$(cell "$*")
+        # A review/file CLAIM by the same role does not accept an implementation.
+        branch_pattern='(^|[[:space:];,])branch[:=][[:space:]]*[^[:space:];,]+'
+        worktree_pattern='(^|[[:space:];,])worktree[:=][[:space:]]*[^[:space:];,]+'
+        [[ $location =~ $branch_pattern ]] && [[ $location =~ $worktree_pattern ]] || exit 0
+        val="delegated to $role, claimed: $location"
+      fi
+      COLLAB_BOARD_VALUE="$val" awk -F'|' -v OFS='|' -v it="$item" -v who="$role" -v action="$action" '
+        /^## Issues([[:space:]]|$)/ { in_issues=1 }
+        /^## / && !/^## Issues([[:space:]]|$)/ { in_issues=0 }
+        {
+          clean=$2; gsub(/^[ \t]+|[ \t]+$/, "", clean)
+          if (in_issues && /^\|/ && clean == it) {
+            note=$8; gsub(/^[ \t]+|[ \t]+$/, "", note)
+            if (action == "delegate" || note == "delegated to " who " (awaiting CLAIM)")
+              $8=" " ENVIRON["COLLAB_BOARD_VALUE"] " "
+          }
+          print
+        }
+      ' "$board" > "$tmp"
+    fi
     ;;
   defer)
     require_item issues

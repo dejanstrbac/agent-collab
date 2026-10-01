@@ -16,6 +16,7 @@ Running multiple AI coding agents concurrently in the same workspace leads to ra
 - **Markdown State Machine**: A central `board.md` tracks findings, RED test hashes, GREEN fix hashes, and review sign-offs.
 - **Append-Only Communication**: Agents coordinate via `chat.log` with cursor tracking so restarted or late-joining agents never miss messages.
 - **Strict Adversarial Protocol**: Reviewers inspect committed code only, independently verify that tests fail (RED) before the fix is applied, and reject fixes that add new hazards.
+- **Delegation with Two Reviews**: The implementer can hand a bounded item to the reviewer or verifier with a written contract (scope, base, RED, done criteria, reviewers); the delegate claims it before starting, and every implementation, whoever wrote it, needs review by two parties other than its author before it is integrated.
 - **Zero Pollution**: `collab-init.sh` automatically adds `agent-collab/` and `.collab.env` to `.git/info/exclude` so the harness never leaks into project commits or pull requests.
 
 ---
@@ -158,15 +159,20 @@ Initializes a new session:
 ```
 
 ### `collab-say.sh <slug> <role> <item|-> <STATUS> [text...]`
-Appends a message to `chat.log`. RED, GREEN, review and deferral results also update `board.md`:
+Appends a message to `chat.log`. RED, GREEN, review, delegation and deferral results also update `board.md`:
 
 ```bash
 ./agent-collab/collab-say.sh fix-auth-cookies implementer 1 'GREEN(a1b2c3d)' "cleared session cookie"
 ./agent-collab/collab-say.sh fix-auth-cookies reviewer 1 'REVIEW-OK(a1b2c3d)' "verified RED pre-fix and GREEN post-fix"
 ```
 
-Claims, dependency reports and delegation messages persist in chat without replacing a review
-cell. If projecting a result onto the board fails, the command returns nonzero and explains
+Delegation offers appear in Notes; only the named delegate's CLAIM naming branch and worktree
+accepts one. Other file/review claims, dependency reports and delegation requests stay in chat.
+Each role's latest review and its hash are recorded separately in the Review cell, retaining
+other roles' verdicts. Different hashes remain visibly distinct; the display never marks DONE
+or proves two independent approvals on the same hash by itself.
+Existing unlabelled verdicts are preserved as `legacy`, without assigning them to a role.
+If projecting a result onto the board fails, the command returns nonzero and explains
 that the message was logged. Inspect that error before retrying to avoid duplicate messages.
 
 ### `collab-watch.sh <slug> <role> [--once | --wait [seconds]] [--consumer <name>]`
@@ -203,9 +209,17 @@ Programmatic interaction with `board.md`:
 ```
 
 Duplicate IDs and missing-item operations fail visibly. Board mutations are serialized with
-an atomic directory lock and unique temporary files. Board and watcher locks wait up to 10
+an atomic directory lock and unique temporary files. Message append plus projection also hold
+a session lock, so a reply cannot overtake the board projection of the message it answers.
+Lock order is message then board; direct board operations never acquire the message lock.
+Board, message and watcher locks wait up to 10
 seconds by default; `COLLAB_LOCK_TIMEOUT_SECONDS` can set 0 through 60 seconds. A timeout never
 removes another process's lock. Investigate a stale lock before manually removing it.
+
+Watch read, output or cursor-write failures return nonzero and preserve the prior cursor.
+Output already delivered before a cursor-write failure can be replayed on retry; inspect the
+failure rather than assuming exactly-once delivery. Truncation replay detects a smaller line
+count, not an equal-length replacement, so keep the normal chat log append-only.
 
 Run the isolated shell smoke checks with `bash test/smoke.sh`; they create synthetic sessions
 under a temporary directory and never read or write your live session.

@@ -30,5 +30,14 @@ You turn findings into proof, act as an active second reviewer on all solutions,
   committed branch diffs, and compatibility questions raised in chat. Execute committed
   candidates in your own isolated worktree; do not inspect or review uncommitted peer edits.
 
+## Delegated Work
+- You write a fix only for an item the implementer delegated to you (`DELEGATE(verifier)`).
+  Answer with `CLAIM` naming your branch and worktree, or `BLOCKED` with the reason; follow the
+  contract in protocol.md ("Delegation"): stay in scope, post each step with its hash, and hand
+  back with `GREEN(<hash>)` plus RED proof, tests and gates.
+- Never review your own commit: your delegated work is reviewed by the implementer and the
+  reviewer. Every other implementation, including the reviewer's delegated work and anything the
+  implementer's subagents wrote, gets your independent review.
+
 ## Final Verification
 - Final run: when asked, run the project's full test suite on the final head in your isolated worktree against your isolated resources. Post pass/skip/fail counts per package. For each failure, show whether it also fails on the base branch with the same setup, and whether it reproduces when run alone.

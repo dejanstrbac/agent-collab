@@ -13,6 +13,30 @@ kit=$(cd "$(dirname "$0")" && pwd)
 log="$kit/sessions/$slug/chat.log"
 [ -f "$log" ] || { echo "no session $slug (run collab-init.sh first)" >&2; exit 1; }
 
+# A peer can observe the append immediately. Serialize append plus projection so
+# its reply cannot overtake the board state of the message it answers.
+lock="$kit/sessions/$slug/.say.lock"
+locked=0
+cleanup() { if [ "$locked" -eq 1 ]; then rmdir "$lock"; fi; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+timeout=${COLLAB_LOCK_TIMEOUT_SECONDS:-10}
+[[ $timeout =~ ^[0-9]+$ ]] && [ "${#timeout}" -le 2 ] || {
+  echo "COLLAB_LOCK_TIMEOUT_SECONDS must be 0 through 60" >&2; exit 2;
+}
+timeout=$((10#$timeout))
+[ "$timeout" -le 60 ] || { echo "COLLAB_LOCK_TIMEOUT_SECONDS must be 0 through 60" >&2; exit 2; }
+started=$(date +%s)
+until mkdir "$lock" 2>/dev/null; do
+  if [ $(( $(date +%s) - started )) -ge "$timeout" ]; then
+    echo "message lock timed out: $lock; no message was appended and the existing lock was left intact" >&2
+    exit 1
+  fi
+  sleep 1
+done
+locked=1
+
 text=""
 if [ $# -gt 0 ]; then text=$(printf '%s ' "$@" | tr '\n\r' '  ' | sed 's/ *$//'); fi
 if [ -n "$text" ]; then
@@ -48,8 +72,15 @@ case $status in
   REVIEW-OK*|REVIEW-CHANGES*)
     hash=$(extract_hash "$status" || extract_hash "$text" || true)
     if [[ $status == REVIEW-OK* ]]; then verdict=OK; else verdict=CHANGES; fi
-    if [ -n "$hash" ]; then verdict="$tick$hash$tick $verdict"; fi
-    project update "$item" review "$verdict"
+    [ -n "$hash" ] || hash=-
+    project review "$item" "$role" "$hash" "$verdict"
+    ;;
+  DELEGATE\(*)
+    to=$(printf '%s\n' "$status" | sed -n 's/^DELEGATE(\([^)]*\))$/\1/p')
+    project delegate "$item" "$to"
+    ;;
+  CLAIM)
+    project claim "$item" "$role" "$text"
     ;;
   DEFERRED*|DEFER)
     reason=$(printf '%s\n' "$status" | sed -n 's/.*(\(.*\)).*/\1/p')

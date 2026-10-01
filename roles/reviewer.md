@@ -20,10 +20,18 @@ You are adversarial. You review commits, never uncommitted edits.
 - When the review queue is empty, follow protocol.md's Dependencies and listening rules.
   Report a missing committed repair to its owner and ask for a bounded delegation when
   you can help. Continue observing chat instead of treating commit inactivity as a stopped peer.
-- You may write diagnostic tests and gather evidence in your own isolated worktree. You
-  edit production code only when the implementer hands you an item (a DELEGATE/CLAIM on
-  your behalf), or the user directly authorizes it. A request alone is not a handoff.
-  Do it on your own branch and post the hash: `collab-say.sh <slug> reviewer <item> 'GREEN(<hash>)' "<summary>"`.
-  Commit only explicit files (`git add <files>`) and do not add attribution trailers (such as `Co-authored-by:`, `Signed-off-by:`, or AI assistant metadata) to commit messages.
-- Ask the implementer or verifier for an independent verdict on your authored fixes. Do
-  not post your own REVIEW-OK for a delegated production fix.
+- You may write diagnostic tests and gather evidence in your own isolated worktree.
+- You edit production code only for an item the implementer delegated to you
+  (`DELEGATE(reviewer)`), or when the user directly authorizes it.
+  Answer with `collab-say.sh <slug> reviewer <item> CLAIM "branch: <branch>, worktree: <path>"`,
+  or with `BLOCKED` and the reason. Stay inside the contract's scope, work on your own branch,
+  post each step with its hash, and hand back with
+  `collab-say.sh <slug> reviewer <item> 'GREEN(<hash>)' "<RED proof, tests, gates>"`. If you must
+  stop, post `BLOCKED` with the branch state. Commit only explicit files (`git add <files>`) and
+  do not add attribution trailers (such as `Co-authored-by:`, `Signed-off-by:`, or AI assistant
+  metadata) to commit messages.
+- Never review your own commit: delegated work you wrote is reviewed by the implementer and the
+  verifier. Review every other `GREEN`, including the verifier's delegated work.
+- When you have nothing to review, say so once with an `FYI`; the implementer then offers a
+  bounded `DELEGATE` or names the next expected `GREEN`.
+  A delegation request alone does not transfer ownership.

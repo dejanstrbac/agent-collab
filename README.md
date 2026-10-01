@@ -76,11 +76,11 @@ When working with pair-programming agents, models may prematurely yield control 
 Use this prompt template to keep agents processing committed work and dependency replies:
 
 ```text
-/goal Collaborate using agent-collab as [implementer | reviewer] on session <slug>.
+/goal Collaborate using agent-collab as [implementer | reviewer | verifier] on session <slug>.
 Read agent-collab/protocol.md and agent-collab/roles/<role>.md and follow them.
 Task: <description of task, or list of scan findings to fix>.
 
-Run autonomously toward the full task. When your queue is empty, report any dependency to its owner with owner, dependency, evidence and next action. Ask the implementer for a bounded delegation if you can help. Continue listening with observed collab-watch.sh <slug> <role> --wait 30 calls and do useful independent work when available. A timeout or unchanged commit does not prove peer work stopped. Follow the host's progress, verified-wait and blocked-goal rules; do not count a listener or repeated status checks as productive progress. Completion still requires every item done or agreed deferred, the final full verification, and DONE agreement.
+Run autonomously toward the full task. When your queue is empty, report any dependency to its owner with owner, dependency, evidence and next action. Ask the implementer for a bounded delegation if you can help. Continue listening with observed collab-watch.sh <slug> <role> --wait 30 calls and do useful independent work when available. A timeout or unchanged commit does not prove peer work stopped. Follow the host's progress, verified-wait and blocked-goal rules; do not count a listener or repeated status checks as productive progress. Completion still requires every item done or agreed deferred and the final full verification, under the protocol's completion criteria.
 ```
 
 For a missing repair, use `BLOCKED "owner=implementer dependency=committed fix for #7 next=post fix hash or delegate repair evidence=<RED hash>"`.
@@ -100,7 +100,7 @@ an available, authorized host wakeup mechanism when listening must continue acro
 |---|---|---|---|
 | **`implementer`** | `<slug>` | `../<repo>-<slug>-implementer` | Runs session setup (`collab-init.sh`), writes fixes, claims issues, cherry-picks reviewer contributions, maintains feature branch. |
 | **`reviewer`** | `<slug>-reviewer` | `../<repo>-<slug>-reviewer` | Adversarial auditor. Independently tests RED hashes against pre-fix code, approves with `REVIEW-OK(<hash>)` or requests changes with `REVIEW-CHANGES(<hash>)`. May implement delegated tasks. |
-| **`verifier`** | `<slug>-verifier` | `../<repo>-<slug>-verifier` | (Optional) Writes reproduction tests and measures performance or regression boundaries. |
+| **`verifier`** | `<slug>-verifier` | `../<repo>-<slug>-verifier` | Writes reproduction tests, supplies an independent non-author review and runs final verification. A session started without one must designate a verification-only party before acceptance. |
 
 ---
 
@@ -145,11 +145,12 @@ the two approvals. The author posts GREEN and never supplies an approval for the
 * `#<item> GREEN(<hash>) <summary>`: Announces a fix commit that resolves the issue.
 * `#<item> REVIEW-OK(<hash>) <summary>`: Approves a fix commit. Updates `board.md`.
 * `#<item> REVIEW-CHANGES(<hash>) <summary>`: Rejects a fix with actionable required changes.
-* `#<item> DELEGATE(<role>) files: <paths>`: Hands off implementation of a specific item.
+* `#<item> DELEGATE(<role>) <contract>`: Only the implementer offers a bounded handoff using the complete contract in protocol.md's "Delegation" section. Occupied Notes and claimed scopes cannot be replaced by another offer.
+* `#<item> CLAIM branch=<branch> worktree=<absolute-path>`: The named delegate accepts the handoff with lowercase keys. The existing colon form also works; malformed acceptance fails visibly. Ordinary file or review claims remain log-only.
 * `#<item> REQUEST-DELEGATE(<role>) base: <hash> files: <paths> scope: <change>`: Requests a bounded handoff; does not transfer ownership. The implementer answers with DELEGATE or an explicit retained-owner next action.
 * `#<item> BLOCKED owner=<role> dependency=<missing input> next=<action> evidence=<hash/result>`: Reports an actionable dependency to its owner. It does not declare the overall task complete or alter host goal status.
 * `#<item> DEFERRED(<reason>)`: Moves an agreed non-actionable issue from Issues to the Deferred table.
-* `#- DONE <summary>`: Final agreement once all items are reviewed and clean.
+* `#- DONE <summary>`: Reports completion only after protocol.md's issue, review and final-verification criteria are met; it does not collect missing approvals.
 
 ### Commit Hygiene
 Agents must commit only explicit file paths (`git add <files>`) and **must not add attribution trailers** (such as `Co-authored-by:`, `Signed-off-by:`, or AI assistant markers) to commit messages unless explicitly requested by the user.
@@ -177,11 +178,14 @@ Appends a message to `chat.log`. RED, GREEN, review, delegation and deferral res
 ./agent-collab/collab-say.sh fix-auth-cookies reviewer 1 'REVIEW-OK(a1b2c3d)' "verified RED pre-fix and GREEN post-fix"
 ```
 
-Delegation offers appear in Notes; only the named delegate's CLAIM naming branch and worktree
+Delegation offers appear in Notes; only the named delegate's
+`CLAIM "branch=<branch> worktree=<absolute-path>"`
 accepts one. Other file/review claims, dependency reports and delegation requests stay in chat.
 Each role's latest review and its hash are recorded separately in the Review cell, retaining
 other roles' verdicts. Different hashes remain visibly distinct; the display never marks DONE
 or proves two independent approvals on the same hash by itself.
+The generated board's legacy Owners line gives default coordination contacts; the protocol's
+author-based review table governs the two independent approvals for each implementation.
 Existing unlabelled verdicts are preserved as `legacy`, without assigning them to a role.
 If projecting a result onto the board fails, the command returns nonzero and explains
 that the message was logged. Inspect that error before retrying to avoid duplicate messages.
@@ -209,13 +213,13 @@ named consumers use `.cursor-<role>.consumer-<name>`. A shortened log is replaye
 beginning. A wait timeout exits successfully with no peer messages; it proves no peer liveness
 or completion. `--wait` accepts 0 through 86400 seconds, and 30 seconds is recommended for tool calls.
 
-### `collab-board.sh <slug> <add|update|defer|get> ...`
+### `collab-board.sh <slug> <add|update|review|delegate|claim|defer|get> ...`
 Programmatic interaction with `board.md`:
 
 ```bash
 ./agent-collab/collab-board.sh fix-auth-cookies add 1 High "server panics on malformed cookie"
 ./agent-collab/collab-board.sh fix-auth-cookies update 1 fix "a1b2c3d"
-./agent-collab/collab-board.sh fix-auth-cookies defer 1 "Not a bug per spec" "reviewer"
+./agent-collab/collab-board.sh fix-auth-cookies defer 1 "Not a bug per spec" "implementer, reviewer, verifier"
 ./agent-collab/collab-board.sh fix-auth-cookies get 1
 ```
 
@@ -226,11 +230,21 @@ Lock order is message then board; direct board operations never acquire the mess
 Board, message and watcher locks wait up to 10
 seconds by default; `COLLAB_LOCK_TIMEOUT_SECONDS` can set 0 through 60 seconds. A timeout never
 removes another process's lock. Investigate a stale lock before manually removing it.
+Read the lock's owner record, verify its process is stopped and preserve its cursor before
+manual recovery. A new `--consumer` replays history and is not recovery of an existing cursor.
 
 Watch read, output or cursor-write failures return nonzero and preserve the prior cursor.
 Output already delivered before a cursor-write failure can be replayed on retry; inspect the
 failure rather than assuming exactly-once delivery. Truncation replay detects a smaller line
-count, not an equal-length replacement, so keep the normal chat log append-only.
+count. A replacement with at least the cursor's line count can also go unnoticed; keep the
+normal chat log append-only.
+
+The two non-author reviews cover the named implementation hashes. Integration is reported
+as FYI with the integrated hash, reviewed hashes and patch-comparison evidence. A clean
+merge or cherry-pick with the same patches inherits those reviews; conflict resolution or
+adaptation is a new GREEN requiring two non-author approvals. Final verification runs on
+the actual integrated head. Obtain all parties' deferral agreement in chat before moving
+the row; a DEFERRED post alone records only its poster, not everyone's consent.
 
 Run the isolated shell smoke checks with `bash test/smoke.sh`; they create synthetic sessions
 under a temporary directory and never read or write your live session.

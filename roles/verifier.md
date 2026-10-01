@@ -11,7 +11,7 @@ You turn findings into proof, act as an active second reviewer on all solutions,
 - On each observed reply or authorized wakeup:
   1. Inspect `chat.log` for new posts, open technical questions, and pending review requests.
   2. Inspect committed task and peer branch heads. Shared local commits need no fetch.
-  3. Review and verify all newly committed fixes and takeover stacks promptly; do not let work accumulate.
+  3. Review and verify committed fixes and explicitly handed-off contributions promptly.
   4. Post timely reviews, verdicts (`REVIEW-OK`, `REVIEW-CHANGES`), and architectural feedback via `collab-say.sh`.
 
 ## Reproduction, Active Second Review & Verification
@@ -33,7 +33,7 @@ You turn findings into proof, act as an active second reviewer on all solutions,
 ## Delegated Work
 - You write a fix only for an item the implementer delegated to you (`DELEGATE(verifier)`), or
   when the user directly authorizes it.
-  Answer with `CLAIM` naming your branch and worktree, or `BLOCKED` with the reason; follow the
+  Answer with `CLAIM "branch=<branch> worktree=<absolute-path>"`, or `BLOCKED` with the reason; follow the
   contract in protocol.md ("Delegation"): stay in scope, post each step with its hash, and hand
   back with `GREEN(<hash>)` plus RED proof, tests and gates.
 - Never review your own commit: anything you wrote (delegated, or assigned to you by the user)

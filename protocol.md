@@ -17,13 +17,15 @@ Its absolute path is on the board once setup is done.
    role's isolated resources and `<KIT>/sessions/<slug>/board.md` with a Resources section.
 4. Fill the board's Issues table from the task: the user's list, or the reviewer's first pass
    if the task is "find and fix".
-5. Post `[implementer] FYI setup done <absolute path of board.md>`.
+5. Post `collab-say.sh <slug> implementer - FYI "setup done <absolute path of board.md>"`.
 6. The implementer immediately changes directory to its own worktree (`<repo>-<slug>-implementer`)
    and runs `source .collab.env`. All subsequent code editing and testing happen there.
 
 Everyone else: wait for that line. Then read the board's Resources section and use only the
 worktree and resources listed for your role. `source .collab.env` in your worktree before
-running tests.
+running tests. A watcher needs an existing session: before setup, check for its `chat.log`
+through bounded observed calls or an authorized host wakeup. Do not repeatedly invoke a
+watcher against a missing session or start work before the setup handoff.
 
 ## Workspace rules
 
@@ -38,6 +40,9 @@ running tests.
 - Do not add attribution trailers (such as `Co-authored-by:`, `Signed-off-by:`, or AI assistant metadata) to commit messages unless explicitly requested by the user.
 - Never use `git stash`. Never force-push or push anywhere without the user asking.
 - Never touch resources the isolation notes mark as shared or off-limits.
+- Changes to this kit use a separate kit worktree and an explicit bounded scope. They obey
+  the same ownership and independent-review rules as application changes; do not edit the
+  installed kit in the main checkout while a session is using it.
 
 ## Communication
 
@@ -52,6 +57,9 @@ it. Use the absolute paths from the board: they are shared by every worktree.
   retrying, so you do not accidentally post the same message twice.
 - **Add new issues** with `<KIT>/collab-board.sh <slug> add <item> <severity> "<scenario>"`.
 - **Defer agreed issues** with `<KIT>/collab-board.sh <slug> defer <item> "<reason>" "<agreed_by>"` or `collab-say.sh <slug> <role> <item> 'DEFERRED(<reason>)'`.
+  Obtain every participating party's acceptance in chat first. Prefer the board command
+  with their actual role names, then an FYI citing that agreement. A DEFERRED post records
+  its poster mechanically; it does not collect the other parties' agreement.
 - **Listen** by running `<KIT>/collab-watch.sh <slug> <role>`. It tracks read position in
   `<KIT>/sessions/<slug>/.cursor-<role>`, so late-starting or restarted agents never miss history.
   - In tool-calling turns: run `collab-watch.sh <slug> <role> --wait 30` to listen for peer
@@ -61,6 +69,10 @@ it. Use the absolute paths from the board: they are shared by every worktree.
     it has its own cursor and receives its own copy of peer messages. Background output
     must be delivered to the agent before that reader can replace foreground listening.
     Starting a shell watcher alone does not schedule a new agent turn.
+  - A consumer with a new name starts at the beginning of history. It is not a silent way
+    around a stuck cursor. Inspect the lock's owner record and confirm that process stopped
+    before manually recovering a stale lock; retain the cursor. Never remove a live or
+    unidentified lock just because its timeout elapsed.
 - Line format: `[role] #<item> <STATUS> <text>`
   STATUS is one of: `CLAIM`, `RED(<hash>)`, `GREEN(<hash>)`, `REVIEW-OK(<hash>)`,
   `REVIEW-CHANGES(<hash>)`, `DELEGATE(<role>)`, `REQUEST-DELEGATE(<role>)`,
@@ -105,11 +117,15 @@ If you can implement a bounded item safely, ask for a handoff:
 ```
 
 The implementer answers at its next coordination opportunity, either with
-`DELEGATE(reviewer)` containing the item, base hash, files and acceptance criteria, or with
+`DELEGATE(reviewer)` using the complete contract in "Delegation" below, or with
 `FYI decision=retain owner=implementer reason=<reason> next=<concrete next action>`.
 A substantive ownership answer is required coordination, not an empty acknowledgement.
 A request, silence or elapsed time does not transfer ownership. The recipient claims the
 files only after an explicit handoff or direct user authorization.
+
+The implementer's coordination opportunities include after each commit, after each post,
+before each new item and after a bounded test or tool call completes. Observe unread chat
+at those boundaries and answer pending ownership questions before starting another item.
 
 While waiting, keep listening through bounded observed tool calls and do independent
 useful work when available. Do not manufacture progress by repeating checks or writing
@@ -143,10 +159,14 @@ review. Delegation moves the writing, never the acceptance.
    - reviewers: the two parties who will review the result (see "Who reviews what").
    Delegate only items no other agent or running job owns, and only one item per delegate at a
    time unless the contract says otherwise.
-2. **Accept.** The delegate answers with `CLAIM` naming its branch and worktree, or with
+2. **Accept.** The delegate answers with `CLAIM "branch=<branch> worktree=<absolute-path>"`, or with
    `BLOCKED` and the reason it cannot take the item. Until the `CLAIM` arrives, the item stays the
    implementer's. A delegated item has one owner at a time: the implementer does not edit the
    claimed scope, and the delegate changes nothing outside it. Ask in chat before widening it.
+   Use lowercase `branch` and `worktree` keys; the existing `branch:` / `worktree:` form
+   also works. A malformed acceptance fails visibly. An ordinary file or review claim is
+   log-only and does not accept a delegation. Keep supplemental notes in FYI posts rather
+   than overwriting the board's pending or claimed delegation state.
 3. **Progress.** The delegate commits on its own branch and posts each step with its hash
    (`RED`, `GREEN`, or `FYI` with the hash). A branch whose head is only an imported `RED` is in
    progress, not stale. A delegate that must stop posts `BLOCKED` with its branch state, so the
@@ -154,19 +174,32 @@ review. Delegation moves the writing, never the acceptance.
 4. **Hand back.** The delegate posts `GREEN(<hash>)` with its RED proof, tests and gates.
    Corrections after review are new hashes, reviewed narrowly.
 5. **Integrate.** After the reviews below, the implementer cherry-picks or merges exactly the
-   reviewed hashes and posts the integrated hash.
+   reviewed hashes. Post `FYI "integrated=<hash> reviewed=<hashes> evidence=<comparison>"`.
+   A clean merge or cherry-pick whose patches match the reviewed hashes inherits their
+   approvals; verify the comparison, for example with range-diff or patch-id. Do not post
+   the integrated hash as a new GREEN merely because its commit ID changed. A conflict
+   resolution or adaptation changes the implementation: post a new GREEN and obtain two
+   non-author approvals for it. Final verification still runs on the integrated head.
 6. **Withdraw.** Either side may end a delegation with an `FYI` saying why. Coordinate the stop and acknowledge the
    handback before resuming edits; a withdrawal message alone does not prove a live job stopped.
    The item returns to the implementer with whatever is committed.
+   If the delegate cannot answer, report owner, last committed state, observed job evidence
+   and the missing stop/handback to the user. Ask for a decision to stop or reassign when
+   needed. A directly observed terminal job permits recording its stopped state; an
+   unchanged branch or an unobserved process does not. Preserve committed work and use
+   isolated resources during an authorized reassignment. Follow the host's wait and goal
+   rules while the decision is pending, so an unreachable delegate is not an endless wait.
 
 ## Who reviews what
 
 Every implementation is reviewed by at least two parties other than its author before it is
 integrated. Nothing is accepted blindly, whoever wrote it.
+An implementation-writing subagent or job inherits its commissioning role's authorship.
+A verification-only agent that did not write the change can be an independent reviewer.
 
 | Author | Reviewed by |
 |---|---|
-| implementer, or a subagent or job the implementer runs | reviewer and verifier |
+| implementer | reviewer and verifier |
 | reviewer (a delegated item, or work the user assigned it directly) | implementer and verifier |
 | verifier (a delegated item, or work the user assigned it directly) | implementer and reviewer |
 
@@ -178,11 +211,9 @@ approval. Changes to this kit itself follow the same table.
 A review reads the diff with its test, reruns the RED against the parent and the tests at the
 hash, and is posted as `REVIEW-OK(<hash>)` or `REVIEW-CHANGES(<hash>)`; the implementer posts
 its reviews of delegated work on the channel like any reviewer. A review covers only the hash it
-names. In a session without a verifier, the second review comes from an independent agent that
-did not write the change (for example one the implementer starts only to review it).
-The Review cell records each role's latest verdict and its hash; verdicts for different hashes
-are visibly distinct. A single verdict or the board display alone never establishes completion;
-check the matching-hash approvals and independence in chat.
+names. If no verifier participated so far, designate the independent verification-only party
+described under "When an item is done" before requesting its second review. Check the
+matching-hash approvals and independence in chat; the Review-cell display is not acceptance.
 
 Two approvals are enough. A third review is welcome but never required, and integration does
 not wait for one. If a later review (a third party's, or one after integration) reports a
@@ -196,16 +227,24 @@ again needs two approvals from parties other than its author.
    the fix, not just asserted.
 2. The fix is committed, and that test and the related tests pass (`GREEN`).
 3. Two parties other than its author have posted `REVIEW-OK` for that hash (see "Who reviews
-   what").
+   what"), or the unchanged reviewed patches inherited by the integration rule above.
 
 An item may instead be deferred, with a written reason that all agents accept. The task is
 done when every row is done or deferred and the verifier's full run on the final head passes
 (or every failure is shown to be unrelated). Then stop, and tell the user.
+If the session started without a verifier, designate an independent verification-only party
+as `verifier`, give it isolated resources and record that assignment before its reviews or
+final run. Do not reuse a role name to make one person's verdict appear to be two parties.
 
 ## Working habits
 
 - Gate every commit on the test command's exit code, never on grep output.
+- Resolve cited commit hashes from actual Git output before posting; do not use placeholders
+  or guess extra characters. Correct a mistaken hash explicitly before relying on its evidence.
 - Fix root causes. If a test or a finding is wrong, say so (`BLOCKED`) rather than fitting
   code to it.
 - Verify claims by running code. A comment or commit message saying something is safe is
   not evidence.
+- RED tests are pending diagnostic inputs, not accepted fixes. Before importing one,
+  independently inspect and reproduce its failure. GREEN reviews check its fidelity again;
+  a test author's own check is not independent evidence for that test.

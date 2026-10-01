@@ -21,7 +21,8 @@ if [ $# -ge 1 ] && git rev-parse --verify --quiet "$1^{commit}" >/dev/null; then
 roles=("$@"); [ ${#roles[@]} -gt 0 ] || roles=(implementer verifier reviewer)
 
 kit=$(cd "$(dirname "$0")" && pwd)
-root=$(git -C "$kit" rev-parse --show-toplevel)
+# The kit is usually its own clone (README), so resolve the host repo from its parent.
+root=$(git -C "$kit/.." rev-parse --show-toplevel)
 repo=$(basename "$root")
 common=$(git -C "$root" rev-parse --git-common-dir)
 case $common in /*) ;; *) common="$root/$common" ;; esac

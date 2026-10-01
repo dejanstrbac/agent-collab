@@ -10,7 +10,8 @@ set -euo pipefail
 slug=$1; keep=${2:-}
 
 kit=$(cd "$(dirname "$0")" && pwd)
-root=$(git -C "$kit" rev-parse --show-toplevel)
+# The kit is usually its own clone (README), so resolve the host repo from its parent.
+root=$(git -C "$kit/.." rev-parse --show-toplevel)
 repo=$(basename "$root")
 
 for wt in "$(dirname "$root")/$repo-$slug-"*; do

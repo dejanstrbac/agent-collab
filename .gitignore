@@ -2,7 +2,12 @@
 sessions/
 .collab.env
 
+# Local project configuration (created from .example files)
+isolation.md
+worktree-setup.sh
+
 # OS files
 .DS_Store
 *.swp
 *~
+

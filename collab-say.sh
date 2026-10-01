@@ -53,10 +53,11 @@ printf 'pid=%s\n' "$$" > "$owner"
 
 text=""
 if [ $# -gt 0 ]; then text=$(printf '%s ' "$@" | tr '\n\r' '  ' | sed 's/ *$//'); fi
+timestamp=${COLLAB_TIMESTAMP:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
 if [ -n "$text" ]; then
-  printf '[%s] #%s %s %s\n' "$role" "$item" "$status" "$text" >> "$log"
+  printf '%s [%s] #%s %s %s\n' "$timestamp" "$role" "$item" "$status" "$text" >> "$log"
 else
-  printf '[%s] #%s %s\n' "$role" "$item" "$status" >> "$log"
+  printf '%s [%s] #%s %s\n' "$timestamp" "$role" "$item" "$status" >> "$log"
 fi
 
 extract_hash() {

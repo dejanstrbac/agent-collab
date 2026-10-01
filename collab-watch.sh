@@ -105,7 +105,11 @@ read_new() {
   if [ "$now" -lt "$seen" ]; then seen=0; reset=1; fi
   if [ "$now" -gt "$seen" ]; then
     if ! lines=$(awk -v first="$((seen + 1))" -v last="$now" -v own="$role" '
-      NR >= first && NR <= last && index($0, "[" own "] ") != 1 { print }
+      NR >= first && NR <= last {
+        line = $0
+        sub(/^(\[[0-9]{4}-[0-9]{2}-[0-9]{2}[^]]*\]|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:?[0-9]{2}))[[:space:]]+/, "", line)
+        if (index(line, "[" own "] ") != 1) { print }
+      }
     ' "$log"); then
       echo "cannot read log: $log; cursor left unchanged" >&2; return 2
     fi

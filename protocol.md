@@ -73,7 +73,8 @@ it. Use the absolute paths from the board: they are shared by every worktree.
     around a stuck cursor. Inspect the lock's owner record and confirm that process stopped
     before manually recovering a stale lock; retain the cursor. Never remove a live or
     unidentified lock just because its timeout elapsed.
-- Line format: `[role] #<item> <STATUS> <text>`
+- Line format: `<timestamp> [role] #<item> <STATUS> <text>`
+  `<timestamp>` is UTC ISO 8601 (e.g. `2026-10-01T07:30:00Z`). Legacy un-timestamped lines starting directly with `[role]` remain supported.
   STATUS is one of: `CLAIM`, `RED(<hash>)`, `GREEN(<hash>)`, `REVIEW-OK(<hash>)`,
   `REVIEW-CHANGES(<hash>)`, `DELEGATE(<role>)`, `REQUEST-DELEGATE(<role>)`,
   `DEFERRED(<reason>)`, `BLOCKED`, `FYI`, `DONE`. Use `#-` when no item applies.

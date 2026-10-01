@@ -229,11 +229,14 @@ expect_exit 1 "$scratch/collab-board.sh" fixture update 9 notes deferred
 pass 'cell content preserves literal escapes; agreed deferral preserves unique IDs'
 
 cat > "$log" <<'EOF'
-[implementer] #1 GREEN(abc1234) peer message
-[reviewer] #1 FYI own message
+2026-10-01T07:30:00Z [implementer] #1 GREEN(abc1234) timestamped peer message
+2026-10-01T07:30:01Z [reviewer] #1 FYI timestamped own message
+[implementer] #1 GREEN(abc1234) legacy peer message
+[reviewer] #1 FYI legacy own message
 EOF
 "$scratch/collab-watch.sh" fixture reviewer --once > "$scratch/default"
-contains "$scratch/default" 'peer message'
+contains "$scratch/default" 'timestamped peer message'
+contains "$scratch/default" 'legacy peer message'
 if grep -F 'own message' "$scratch/default" >/dev/null; then fail 'own message was emitted'; fi
 "$scratch/collab-watch.sh" fixture reviewer --once > "$scratch/default-again"
 [ ! -s "$scratch/default-again" ] || fail 'default reader repeated message'
@@ -241,7 +244,10 @@ if grep -F 'own message' "$scratch/default" >/dev/null; then fail 'own message w
 cmp -s "$scratch/default" "$scratch/audit" || fail 'independent consumer missed history'
 "$scratch/collab-watch.sh" fixture reviewer --once --consumer audit > "$scratch/audit-again"
 [ ! -s "$scratch/audit-again" ] || fail 'named reader repeated message'
-pass 'default and independent watch consumers each receive peer history once'
+"$scratch/collab-say.sh" fixture implementer - FYI 'live timestamp test'
+tail_line=$(tail -n 1 "$log")
+[[ $tail_line =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\ \[implementer\]\ #-\ FYI\ live\ timestamp\ test$ ]] || fail 'collab-say emitted invalid timestamp format'
+pass 'default and independent watch consumers each receive peer history once with timestamp support'
 
 "$scratch/collab-watch.sh" fixture verifier --consumer live --once > "$scratch/live-before"
 "$scratch/collab-watch.sh" fixture verifier --consumer live --wait 5 > "$scratch/live-after" &

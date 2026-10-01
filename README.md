@@ -113,6 +113,7 @@ sequenceDiagram
     participant User
     participant Implementer
     participant Reviewer
+    participant Verifier as Verifier / independent second reviewer
     
     Implementer->>Implementer: collab-init.sh (creates branches & worktrees)
     Implementer->>Reviewer: [implementer] #- FYI setup done
@@ -121,11 +122,21 @@ sequenceDiagram
     Implementer->>Reviewer: [implementer] #1 RED(1111111) test proves bug
     Implementer->>Implementer: Commit GREEN fix (hash: 2222222)
     Implementer->>Reviewer: [implementer] #1 GREEN(2222222) fix implemented
+    Implementer->>Verifier: [implementer] #1 GREEN(2222222) request independent review
     Reviewer->>Reviewer: Verify RED test fails on pre-fix code
-    Reviewer->>Reviewer: Verify GREEN fix passes full suite
+    Reviewer->>Reviewer: Review diff and run related tests at 2222222
     Reviewer->>Implementer: [reviewer] #1 REVIEW-OK(2222222)
+    Verifier->>Verifier: Independently review diff, parent RED and related tests
+    Verifier->>Implementer: [verifier] #1 REVIEW-OK(2222222)
+    Implementer->>Implementer: Integrate exactly the hash approved by both non-authors
+    Implementer->>Verifier: Request final full verification on integrated head
+    Verifier->>Implementer: [verifier] #- FYI final full run passed
     Implementer->>Reviewer: [implementer] #- DONE all approved
+    Reviewer->>Implementer: [reviewer] #- DONE review complete
 ```
+
+For reviewer- or verifier-authored work, the implementer and the remaining peer supply
+the two approvals. The author posts GREEN and never supplies an approval for their own work.
 
 ### Supported Status Tags
 

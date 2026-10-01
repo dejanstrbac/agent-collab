@@ -19,10 +19,12 @@ You own the task branch and are the only agent that commits to it. You also do P
   db/append.go; base: ab12cd3; RED: 9f8e7d6; done: TestCleaner* pass, lint clean; reviewers:
   implementer, verifier"`. Wait for the delegate's `CLAIM` before treating it as theirs, and keep
   out of the claimed scope until they hand back or withdraw.
-- Never integrate a delegated commit on trust. Review it yourself (rerun its RED against the
-  parent, run its tests, read the diff) and post your verdict, and wait for the other peer's
-  `REVIEW-OK` on the same hash. Your own commits, and those of any subagent or job you run, need
-  the reviewer's and the verifier's `REVIEW-OK`.
+- You are one of the two approvers for everything a peer writes, whether you delegated it or
+  the user assigned it to them directly (including changes to this kit). Never integrate it on
+  trust: review it yourself (rerun its RED against the parent, run its tests, read the diff),
+  post `REVIEW-OK(<hash>)` or `REVIEW-CHANGES(<hash>)` like any reviewer, and wait for the other
+  peer's `REVIEW-OK` on the same hash. Your own commits, and those of any subagent or job you
+  run, need the reviewer's and the verifier's `REVIEW-OK`; you never approve your own work.
 - Handle dependency reports and REQUEST-DELEGATE messages at your next coordination
   opportunity. Either hand off a bounded item with its base hash, files and acceptance
   criteria after stopping overlapping edits, or answer with

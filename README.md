@@ -16,6 +16,7 @@ Running multiple AI coding agents concurrently in the same workspace leads to ra
 - **Markdown State Machine**: A central `board.md` tracks findings, RED test hashes, GREEN fix hashes, and review sign-offs.
 - **Append-Only Communication**: Agents coordinate via `chat.log` with cursor tracking so restarted or late-joining agents never miss messages.
 - **Strict Adversarial Protocol**: Reviewers inspect committed code only, independently verify that tests fail (RED) before the fix is applied, and reject fixes that add new hazards.
+- **Delegation with Two Reviews**: The implementer can hand a bounded item to the reviewer or verifier with a written contract (scope, base, RED, done criteria, reviewers); the delegate claims it before starting, and every implementation, whoever wrote it, needs review by two parties other than its author before it is integrated.
 - **Zero Pollution**: `collab-init.sh` automatically adds `agent-collab/` and `.collab.env` to `.git/info/exclude` so the harness never leaks into project commits or pull requests.
 
 ---

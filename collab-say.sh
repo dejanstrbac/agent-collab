@@ -62,6 +62,22 @@ if [ "$clean_item" != "-" ] && [ -x "$kit/collab-board.sh" ] && [ -f "$kit/sessi
         "$kit/collab-board.sh" "$slug" update "$clean_item" review "CHANGES" 2>/dev/null || true
       fi
       ;;
+    DELEGATE* )
+      # The board shows who owns a delegated item: offered here, claimed below.
+      to=$(echo "$status" | sed -n 's/.*(\(.*\)).*/\1/p')
+      [ -n "$to" ] && "$kit/collab-board.sh" "$slug" update "$clean_item" notes "delegated to $to (awaiting CLAIM)" 2>/dev/null || true
+      ;;
+    CLAIM )
+      # Only the delegate's own CLAIM accepts a delegation; a CLAIM of files or of a review
+      # leaves the notes alone.
+      row=$("$kit/collab-board.sh" "$slug" get "$clean_item" 2>/dev/null || true)
+      case "$row" in
+        *"delegated to $role (awaiting CLAIM)"*)
+          where=$(printf '%s' "$text" | tr '|' '/' | cut -c1-120)
+          "$kit/collab-board.sh" "$slug" update "$clean_item" notes "delegated to $role, claimed${where:+: $where}" 2>/dev/null || true
+          ;;
+      esac
+      ;;
     DEFERRED*|DEFER )
       reason=$(echo "$status" | sed -n 's/.*(\(.*\)).*/\1/p')
       [ -z "$reason" ] && reason="$text"

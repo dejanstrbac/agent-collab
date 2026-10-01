@@ -80,7 +80,9 @@ contains "$board" "$tick""abc1234""$tick OK"
 "$scratch/collab-say.sh" fixture reviewer 1 'REVIEW-CHANGES(abc1234)' change
 contains "$board" "$tick""abc1234""$tick CHANGES"
 "$scratch/collab-say.sh" fixture reviewer - BLOCKED 'owner=implementer dependency=repair next=commit'
+cp "$board" "$scratch/request-before"
 "$scratch/collab-say.sh" fixture reviewer 1 'REQUEST-DELEGATE(reviewer)' 'bounded request'
+cmp -s "$board" "$scratch/request-before" || fail 'delegation request changed board'
 contains "$log" '#- BLOCKED owner=implementer'
 contains "$log" '#1 REQUEST-DELEGATE(reviewer)'
 pass 'successful RED, GREEN, review and dependency messages retain compatibility'
@@ -145,6 +147,8 @@ rmdir "$session/.say.lock"
 pass 'writer lock timeout is visible and leaves another lock intact'
 
 # Pause delegation projection after its log append, then answer that visible post.
+# The earlier delegate has explicitly handed back in this synthetic fixture.
+"$scratch/collab-board.sh" fixture update 1 notes ''
 mv "$scratch/collab-board.sh" "$scratch/board-real.sh"
 cat > "$scratch/collab-board.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -344,5 +348,203 @@ expect_exit 1 "$scratch/collab-watch.sh" fixture reviewer --once
 contains "$scratch/command.err" 'invalid cursor'
 [ ! -d "$session/.cursor-reviewer.lock" ] || fail 'invalid cursor left lock'
 pass 'unsafe input and malformed cursors fail visibly'
+
+# Hashes must be complete tokens, not the hexadecimal part of an English word
+# or a sample input such as 0xdeadbeef. Exercise the text fallback explicitly.
+"$scratch/collab-board.sh" fixture add 20 P2 'hash token boundaries'
+"$scratch/collab-say.sh" fixture implementer 20 GREEN 'addressed review feedback in 9f8e7d6a'
+"$scratch/collab-board.sh" fixture get 20 > "$scratch/hash-row"
+contains "$scratch/hash-row" "$tick""9f8e7d6a""$tick"
+if grep -F 'feedbac' "$scratch/hash-row" >/dev/null; then fail 'English word became a fix hash'; fi
+"$scratch/collab-say.sh" fixture verifier 20 REVIEW-OK 'checked 0xdeadbeef handling at 9f8e7d6a'
+"$scratch/collab-board.sh" fixture get 20 > "$scratch/hash-row"
+contains "$scratch/hash-row" "verifier: $tick""9f8e7d6a""$tick OK"
+"$scratch/collab-say.sh" fixture reviewer 20 REVIEW-OK 'thanks for the feedback, looks right'
+"$scratch/collab-board.sh" fixture get 20 > "$scratch/hash-row"
+contains "$scratch/hash-row" 'reviewer: OK'
+"$scratch/collab-say.sh" fixture verifier 20 RED 'failure shown by (123abcd), not prefix123abcdsuffix'
+"$scratch/collab-board.sh" fixture get 20 > "$scratch/hash-row"
+contains "$scratch/hash-row" "$tick""123abcd""$tick"
+pass 'text hash fallback respects word boundaries and ignores hexadecimal sample inputs'
+
+"$scratch/collab-board.sh" fixture add 21 P2 'delegation occupancy'
+"$scratch/collab-say.sh" fixture implementer 21 'DELEGATE(reviewer)' 'bounded offer'
+cp "$board" "$scratch/offer-before"
+"$scratch/collab-say.sh" fixture implementer 21 'DELEGATE(reviewer)' 'same pending offer'
+cmp -s "$board" "$scratch/offer-before" || fail 'identical pending offer changed board'
+"$scratch/collab-say.sh" fixture reviewer 21 CLAIM 'branch=reviewer worktree=/tmp/reviewer'
+cp "$board" "$scratch/owner-before"
+expect_exit 1 "$scratch/collab-say.sh" fixture verifier 21 'DELEGATE(verifier)' 'self assignment'
+cmp -s "$board" "$scratch/owner-before" || fail 'non-implementer delegation changed owner'
+contains "$scratch/command.err" 'only the implementer'
+expect_exit 1 "$scratch/collab-say.sh" fixture implementer 21 'DELEGATE(verifier)' 'claimed scope'
+cmp -s "$board" "$scratch/owner-before" || fail 'claimed owner overwritten by implementer'
+expect_exit 1 "$scratch/collab-board.sh" fixture delegate 21 verifier
+cmp -s "$board" "$scratch/owner-before" || fail 'low-level delegate overwrote claimed scope'
+"$scratch/collab-board.sh" fixture add 22 P2 'free notes'
+"$scratch/collab-board.sh" fixture update 22 notes 'repro needs TZ=UTC; see thread'
+cp "$board" "$scratch/notes-before"
+expect_exit 1 "$scratch/collab-say.sh" fixture implementer 22 'DELEGATE(verifier)' 'free notes'
+cmp -s "$board" "$scratch/notes-before" || fail 'delegation erased free Notes'
+contains "$scratch/command.err" 'Notes'
+pass 'only implementer offers delegations; atomic occupancy guards preserve claimed and free Notes'
+
+"$scratch/collab-board.sh" fixture add 23 P2 'malformed acceptance'
+"$scratch/collab-say.sh" fixture implementer 23 'DELEGATE(verifier)' 'bounded offer'
+cp "$board" "$scratch/claim-before"
+expect_exit 1 "$scratch/collab-say.sh" fixture verifier 23 CLAIM 'Branch:x, Worktree:/tmp/y'
+contains "$scratch/command.err" 'branch'
+cmp -s "$board" "$scratch/claim-before" || fail 'malformed acceptance changed owner'
+expect_exit 1 "$scratch/collab-say.sh" fixture verifier 23 CLAIM 'on branch x in worktree /tmp/y'
+cmp -s "$board" "$scratch/claim-before" || fail 'prose acceptance changed owner'
+"$scratch/collab-say.sh" fixture verifier 23 CLAIM 'reviewing abc1234'
+cmp -s "$board" "$scratch/claim-before" || fail 'ordinary review claim accepted scope'
+"$scratch/collab-board.sh" fixture update 23 notes 'delegated to verifier (awaiting CLAIM); see file:12'
+cp "$board" "$scratch/claim-before"
+expect_exit 1 "$scratch/collab-say.sh" fixture verifier 23 CLAIM 'branch=x worktree=/tmp/y'
+cmp -s "$board" "$scratch/claim-before" || fail 'acceptance erased altered Notes'
+"$scratch/collab-board.sh" fixture update 23 notes 'delegated to verifier (awaiting CLAIM)'
+"$scratch/collab-say.sh" fixture verifier 23 CLAIM 'branch=x worktree=/tmp/y'
+contains "$board" 'delegated to verifier, claimed: branch=x worktree=/tmp/y'
+pass 'malformed named-delegate acceptance fails visibly; review claims stay log-only'
+
+cp "$board" "$scratch/file-claim-before"
+"$scratch/collab-say.sh" fixture implementer 999 CLAIM 'files: a.go, b.go'
+"$scratch/collab-say.sh" fixture implementer 9 CLAIM 'files: deferred.go'
+cmp -s "$board" "$scratch/file-claim-before" || fail 'ordinary file claim changed board'
+contains "$log" '#999 CLAIM files: a.go, b.go'
+expect_exit 1 "$scratch/collab-say.sh" fixture reviewer 999 'GREEN(abc1234)' missing
+pass 'ordinary unknown and deferred file claims are log-only; missing result projection still fails'
+
+"$scratch/collab-board.sh" fixture add 24 P2 'nested deferral'
+"$scratch/collab-say.sh" fixture reviewer 24 'DEFERRED(upstream bug (tracked in go-smtp #42), not ours)'
+"$scratch/collab-board.sh" fixture get 24 > "$scratch/nested-reason"
+contains "$scratch/nested-reason" '| 24 | upstream bug (tracked in go-smtp #42), not ours | reviewer |'
+pass 'nested parentheses in deferral reasons are preserved'
+
+# BSD awk/tr under a UTF-8 locale must safely handle a byte supplied by a peer.
+invalid_byte=$(printf 'caf\351 latin1')
+env LC_ALL=C "$scratch/collab-board.sh" fixture add 25 P2 "$invalid_byte"
+env LC_ALL=en_US.UTF-8 "$scratch/collab-board.sh" fixture get 25 > "$scratch/byte-row"
+LC_ALL=C grep -F "$invalid_byte" "$scratch/byte-row" >/dev/null || fail 'invalid byte did not survive board parsing'
+env LC_ALL=en_US.UTF-8 "$scratch/collab-say.sh" fixture implementer 25 FYI "$invalid_byte"
+LC_ALL=C grep -F "$invalid_byte" "$log" >/dev/null || fail 'invalid byte did not survive log append'
+cat > "$scratch/fail-bin/awk" <<'EOF'
+#!/usr/bin/env bash
+echo 'injected board read failure' >&2
+exit 1
+EOF
+chmod +x "$scratch/fail-bin/awk"
+cp "$board" "$scratch/read-before"
+expect_exit 1 env PATH="$scratch/fail-bin:$PATH" "$scratch/collab-board.sh" fixture add 26 P2 inaccessible
+contains "$scratch/command.err" 'cannot read board'
+if grep -F 'already exists' "$scratch/command.err" >/dev/null; then fail 'board read error misreported as duplicate'; fi
+cmp -s "$board" "$scratch/read-before" || fail 'failed read changed board'
+expect_exit 1 env PATH="$scratch/fail-bin:$PATH" "$scratch/collab-board.sh" fixture get 25
+contains "$scratch/command.err" 'cannot read board'
+rm "$scratch/fail-bin/awk"
+pass 'byte-safe parsing preserves peer text; board read errors are distinct from duplicates'
+
+# Replace each held lock just before cleanup. No old process owns this new lock.
+cat > "$scratch/fail-bin/mv" <<'EOF'
+#!/usr/bin/env bash
+/bin/mv "$@" || exit $?
+rm -rf "$COLLAB_TEST_REPLACE_LOCK"
+mkdir "$COLLAB_TEST_REPLACE_LOCK"
+EOF
+chmod +x "$scratch/fail-bin/mv"
+env PATH="$scratch/fail-bin:$PATH" COLLAB_TEST_REPLACE_LOCK="$session/.board.lock" \
+  "$scratch/collab-board.sh" fixture update 25 fix unchanged
+[ -d "$session/.board.lock" ] || fail 'old board writer deleted replacement lock'
+rmdir "$session/.board.lock"
+printf '[implementer] #- FYI replacement cursor lock\n' > "$log"
+printf '0\n' > "$session/.cursor-reviewer"
+env PATH="$scratch/fail-bin:$PATH" COLLAB_TEST_REPLACE_LOCK="$session/.cursor-reviewer.lock" \
+  "$scratch/collab-watch.sh" fixture reviewer --once > "$scratch/replace-watch"
+[ -d "$session/.cursor-reviewer.lock" ] || fail 'old watcher deleted replacement lock'
+rmdir "$session/.cursor-reviewer.lock"
+rm "$scratch/fail-bin/mv"
+mv "$scratch/collab-board.sh" "$scratch/board-real.sh"
+cat > "$scratch/collab-board.sh" <<'EOF'
+#!/usr/bin/env bash
+kit=$(cd "$(dirname "$0")" && pwd)
+"$kit/board-real.sh" "$@" || exit $?
+rm -rf "$COLLAB_TEST_REPLACE_LOCK"
+mkdir "$COLLAB_TEST_REPLACE_LOCK"
+EOF
+chmod +x "$scratch/collab-board.sh"
+env COLLAB_TEST_REPLACE_LOCK="$session/.say.lock" \
+  "$scratch/collab-say.sh" fixture verifier 25 'REVIEW-OK(abc1234)' replacement
+[ -d "$session/.say.lock" ] || fail 'old message writer deleted replacement lock'
+rmdir "$session/.say.lock"
+mv "$scratch/board-real.sh" "$scratch/collab-board.sh"
+cat > "$scratch/fail-bin/awk" <<'EOF'
+#!/usr/bin/env bash
+rm -rf "$COLLAB_TEST_REPLACE_LOCK"
+mkdir "$COLLAB_TEST_REPLACE_LOCK"
+touch "$COLLAB_TEST_REPLACE_LOCK/replacement-owner"
+echo 'injected read failure after lock replacement' >&2
+exit 1
+EOF
+chmod +x "$scratch/fail-bin/awk"
+printf '0\n' > "$session/.cursor-reviewer"
+expect_exit 2 env PATH="$scratch/fail-bin:$PATH" COLLAB_TEST_REPLACE_LOCK="$session/.cursor-reviewer.lock" \
+  "$scratch/collab-watch.sh" fixture reviewer --once
+[ -f "$session/.cursor-reviewer.lock/replacement-owner" ] || fail 'replacement owner lost'
+rm "$session/.cursor-reviewer.lock/replacement-owner"
+rmdir "$session/.cursor-reviewer.lock"
+rm "$scratch/fail-bin/awk"
+pass 'owner tokens preserve replacement locks and original command exit codes'
+
+# Focused probes also reject mutants of two properties already correct at base.
+probe_request() {
+  local target=$1
+  mkdir -p "$target/sessions/fixture"
+  cp "$scratch/read-before" "$target/sessions/fixture/board.md"
+  : > "$target/sessions/fixture/chat.log"
+  cp "$target/sessions/fixture/board.md" "$target/before"
+  "$target/collab-say.sh" fixture implementer 25 'REQUEST-DELEGATE(reviewer)' bounded >/dev/null 2>&1 || return 1
+  cmp -s "$target/before" "$target/sessions/fixture/board.md"
+}
+probe_print_failure() {
+  local target=$1 actual
+  mkdir -p "$target/sessions/fixture"
+  printf '[implementer] #- FYI output must reach caller\n' > "$target/sessions/fixture/chat.log"
+  printf '0\n' > "$target/sessions/fixture/.cursor-reviewer"
+  cat > "$target/printf-failure" <<'EOF'
+printf() {
+  case ${2-} in '[implementer] '* ) return 1 ;; esac
+  builtin printf "$@"
+}
+EOF
+  if env BASH_ENV="$target/printf-failure" "$target/collab-watch.sh" fixture reviewer --once > "$target/output" 2> "$target/error"; then actual=0; else actual=$?; fi
+  [ "$actual" -eq 2 ] && [ "$(cat "$target/sessions/fixture/.cursor-reviewer")" -eq 0 ]
+}
+mkdir "$scratch/probe-base" "$scratch/probe-request-mutant" "$scratch/probe-print-mutant"
+for target in probe-base probe-request-mutant probe-print-mutant; do
+  for script in collab-board.sh collab-say.sh collab-watch.sh; do cp "$scratch/$script" "$scratch/$target/$script"; done
+done
+probe_request "$scratch/probe-base" || fail 'REQUEST-DELEGATE guard probe failed'
+awk '
+  /case \$status in/ {
+    print
+    print "  REQUEST-DELEGATE\\(*)"
+    print "    project update \"$item\" notes mutated-request"
+    print "    ;;"
+    next
+  }
+  { print }
+' "$scratch/collab-say.sh" > "$scratch/probe-request-mutant/collab-say.sh"
+if probe_request "$scratch/probe-request-mutant"; then fail 'REQUEST-DELEGATE board mutation survived probe'; fi
+probe_print_failure "$scratch/probe-base" || fail 'printf failure cursor guard probe failed'
+awk '
+  index($0, "if ! printf") && index($0, "\"$lines\"") {
+    print "      if ! { printf '\''%s\\n'\'' \"$lines\" || true; }; then"
+    next
+  }
+  { print }
+' "$scratch/collab-watch.sh" > "$scratch/probe-print-mutant/collab-watch.sh"
+if probe_print_failure "$scratch/probe-print-mutant"; then fail 'ignored printf failure mutation survived probe'; fi
+pass 'REQUEST-DELEGATE board and printf-failure cursor guards reject explicit mutants'
 
 printf 'PASS %s isolated smoke cases\n' "$checks"

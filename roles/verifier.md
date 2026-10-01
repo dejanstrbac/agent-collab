@@ -29,8 +29,8 @@ You turn findings into proof, act as an active second reviewer on all solutions,
   Answer with `CLAIM` naming your branch and worktree, or `BLOCKED` with the reason; follow the
   contract in protocol.md ("Delegation"): stay in scope, post each step with its hash, and hand
   back with `GREEN(<hash>)` plus RED proof, tests and gates.
-- Never review your own commit: your delegated work is reviewed by the implementer and the
-  reviewer. Every other implementation, including the reviewer's delegated work and anything the
+- Never review your own commit: anything you wrote (delegated, or assigned to you by the user)
+  is approved by the implementer and the reviewer, and you hand it to both. Every other implementation, including the reviewer's delegated work and anything the
   implementer's subagents wrote, gets your independent review.
 
 ## Final Verification

@@ -100,8 +100,13 @@ integrated. Nothing is accepted blindly, whoever wrote it.
 | Author | Reviewed by |
 |---|---|
 | implementer, or a subagent or job the implementer runs | reviewer and verifier |
-| reviewer, on a delegated item | implementer and verifier |
-| verifier, on a delegated item | implementer and reviewer |
+| reviewer (a delegated item, or work the user assigned it directly) | implementer and verifier |
+| verifier (a delegated item, or work the user assigned it directly) | implementer and reviewer |
+
+The implementer is a reviewing party, not only the integrator: for anything it did not write,
+its own `REVIEW-OK` is one of the two approvals, and it reviews as thoroughly as the reviewer
+would. No party approves its own work, and an author's `GREEN` is never counted as an
+approval. Changes to this kit itself follow the same table.
 
 A review reads the diff with its test, reruns the RED against the parent and the tests at the
 hash, and is posted as `REVIEW-OK(<hash>)` or `REVIEW-CHANGES(<hash>)`; the implementer posts

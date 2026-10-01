@@ -2,6 +2,8 @@
 # collab-board.sh <slug> <add|update|review|delegate|claim|defer|get> [args...]
 # Mutations serialize their whole read/modify/rename transaction.
 set -euo pipefail
+# Session cells are bytes, including text copied from non-UTF-8 peers.
+export LC_ALL=C
 
 usage() {
   cat <<'EOF' >&2
@@ -40,7 +42,8 @@ cell() { printf '%s' "$1" | tr '\n\r' '  ' | sed 's/|/\&#124;/g'; }
 
 # Only table rows in Issues or Deferred are IDs; Resources and headings are not.
 count_item() {
-  awk -F'|' -v it="$item" -v target="$1" '
+  local count
+  if ! count=$(awk -F'|' -v it="$item" -v target="$1" '
     /^## Issues([[:space:]]|$)/ { section="issues"; next }
     /^## Deferred([[:space:]]|$)/ { section="deferred"; next }
     /^## / { section=""; next }
@@ -49,12 +52,16 @@ count_item() {
       if (clean == it) count++
     }
     END { print count+0 }
-  ' "$board"
+  ' "$board"); then
+    echo "cannot read board: $board" >&2; return 1
+  fi
+  [[ $count =~ ^[0-9]+$ ]] || { echo "invalid board item count: $board" >&2; return 1; }
+  printf '%s\n' "$count"
 }
 
 require_item() {
   local count
-  count=$(count_item "$1")
+  count=$(count_item "$1") || exit 1
   [ "$count" -eq 1 ] || {
     if [ "$count" -eq 0 ]; then echo "item $item not found in $1 table" >&2
     else echo "item $item is ambiguous in $1 table" >&2; fi
@@ -64,10 +71,18 @@ require_item() {
 
 lock="$session/.board.lock"
 locked=0
+owner=""
 tmp=""
 cleanup() {
-  [ -z "$tmp" ] || rm -f "$tmp"
-  if [ "$locked" -eq 1 ]; then rmdir "$lock"; fi
+  local result=$?
+  trap - EXIT
+  [ -z "$tmp" ] || rm -f "$tmp" || true
+  if [ "$locked" -eq 1 ] && [ -n "$owner" ] && [ -f "$owner" ]; then
+    if rm -f "$owner"; then
+      rmdir "$lock" 2>/dev/null || { echo "board lock cleanup incomplete: $lock; inspect before recovery" >&2 || true; }
+    fi
+  fi
+  exit "$result"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -83,18 +98,21 @@ if [ "$action" != get ]; then
   started=$(date +%s)
   until mkdir "$lock" 2>/dev/null; do
     if [ $(( $(date +%s) - started )) -ge "$timeout" ]; then
-      echo "board lock timed out: $lock; another writer's lock was left intact" >&2
+      echo "board lock timed out: $lock; inspect owner.* for its PID and confirm the holder stopped before recovery" >&2
       exit 1
     fi
     sleep 1
   done
   locked=1
+  owner=$(mktemp "$lock/owner.XXXXXX")
+  printf 'pid=%s\n' "$$" > "$owner"
   tmp=$(mktemp "$session/.board.XXXXXX")
 fi
 
 case $action in
   add)
-    [ "$(count_item all)" -eq 0 ] || { echo "item $item already exists on board" >&2; exit 1; }
+    count=$(count_item all) || exit 1
+    [ "$count" -eq 0 ] || { echo "item $item already exists on board" >&2; exit 1; }
     awk '/^## Issues([[:space:]]|$)/ { found=1 } END { exit !found }' "$board" || {
       echo "board has no Issues section" >&2; exit 1;
     }
@@ -126,9 +144,19 @@ case $action in
     ' "$board" > "$tmp"
     ;;
   review|delegate|claim)
-    require_item issues
     role=$1; shift
     [[ $role =~ ^[a-z][a-z0-9_-]*$ ]] || { echo "invalid role" >&2; exit 2; }
+    if [ "$action" = claim ]; then
+      location=$(cell "$*")
+      hint=$(printf '%s' "$location" | tr '[:upper:]' '[:lower:]')
+      ordinary_pattern='^[[:space:]]*(files?[:=]|review(ing|[[:space:]:=]|$))'
+      acceptance_pattern='(^|[^a-z0-9_])(branch|worktree)([^a-z0-9_]|$)'
+      # Ordinary file/review claims are log-only, even before an issue is added.
+      [[ $hint =~ $ordinary_pattern ]] && exit 0
+      count=$(count_item issues) || exit 1
+      if [ "$count" -eq 0 ] && ! [[ $hint =~ $acceptance_pattern ]]; then exit 0; fi
+    fi
+    require_item issues
     if [ "$action" = review ]; then
       hash=$1; verdict=$2
       [[ $hash == "-" || $hash =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "invalid review hash" >&2; exit 2; }
@@ -159,22 +187,37 @@ case $action in
     else
       if [ "$action" = delegate ]; then val="delegated to $role (awaiting CLAIM)"
       else
-        location=$(cell "$*")
         # A review/file CLAIM by the same role does not accept an implementation.
         branch_pattern='(^|[[:space:];,])branch[:=][[:space:]]*[^[:space:];,]+'
         worktree_pattern='(^|[[:space:];,])worktree[:=][[:space:]]*[^[:space:];,]+'
-        [[ $location =~ $branch_pattern ]] && [[ $location =~ $worktree_pattern ]] || exit 0
+        valid=0
+        if [[ $location =~ $branch_pattern ]] && [[ $location =~ $worktree_pattern ]]; then valid=1; fi
         val="delegated to $role, claimed: $location"
       fi
-      COLLAB_BOARD_VALUE="$val" awk -F'|' -v OFS='|' -v it="$item" -v who="$role" -v action="$action" '
+      COLLAB_BOARD_VALUE="$val" awk -F'|' -v OFS='|' -v it="$item" -v who="$role" -v action="$action" -v valid="${valid:-0}" '
         /^## Issues([[:space:]]|$)/ { in_issues=1 }
         /^## / && !/^## Issues([[:space:]]|$)/ { in_issues=0 }
         {
           clean=$2; gsub(/^[ \t]+|[ \t]+$/, "", clean)
           if (in_issues && /^\|/ && clean == it) {
             note=$8; gsub(/^[ \t]+|[ \t]+$/, "", note)
-            if (action == "delegate" || note == "delegated to " who " (awaiting CLAIM)")
+            pending="delegated to " who " (awaiting CLAIM)"
+            if (action == "delegate") {
+              if (note != "" && note != pending) {
+                print "cannot delegate item " it ": Notes are occupied; confirm handback and update Notes explicitly" > "/dev/stderr"
+                exit 1
+              }
               $8=" " ENVIRON["COLLAB_BOARD_VALUE"] " "
+            } else if (note == pending) {
+              if (!valid) {
+                print "malformed delegation CLAIM: use branch=<branch> worktree=<path> (lowercase keys)" > "/dev/stderr"
+                exit 1
+              }
+              $8=" " ENVIRON["COLLAB_BOARD_VALUE"] " "
+            } else if ((index(note, "delegated to " who " (") == 1 || index(note, "delegated to " who ", claimed: ") == 1) && note != ENVIRON["COLLAB_BOARD_VALUE"]) {
+              print "cannot accept item " it ": Notes are not the exact pending delegation; inspect before retrying" > "/dev/stderr"
+              exit 1
+            }
           }
           print
         }
@@ -183,7 +226,8 @@ case $action in
     ;;
   defer)
     require_item issues
-    [ "$(count_item all)" -eq 1 ] || { echo "item $item is ambiguous on board" >&2; exit 1; }
+    count=$(count_item all) || exit 1
+    [ "$count" -eq 1 ] || { echo "item $item is ambiguous on board" >&2; exit 1; }
     reason=$(cell "$1"); agreed_by=$(cell "$2")
     COLLAB_BOARD_VALUE="| $item | $reason | $agreed_by |" awk -F'|' -v it="$item" '
       /^## Issues([[:space:]]|$)/ { section="issues"; print; next }

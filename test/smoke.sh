@@ -252,6 +252,13 @@ while [ ! -d "$session/.cursor-verifier.consumer-live.lock" ]; do
   [ "$attempt" -le 4 ] || fail 'watcher did not acquire its cursor'
   sleep 1
 done
+attempt=0
+owner_files=("$session/.cursor-verifier.consumer-live.lock"/owner.*)
+until [ -f "${owner_files[0]}" ]; do
+  attempt=$((attempt+1)); [ "$attempt" -le 4 ] || fail 'watcher did not record its owner PID'; sleep 1
+  owner_files=("$session/.cursor-verifier.consumer-live.lock"/owner.*)
+done
+contains "${owner_files[0]}" "pid=$child"
 expect_exit 1 env COLLAB_LOCK_TIMEOUT_SECONDS=0 "$scratch/collab-watch.sh" fixture verifier --consumer live --once
 contains "$scratch/command.err" 'watch cursor lock timed out'
 [ -d "$session/.cursor-verifier.consumer-live.lock" ] || fail 'competing reader removed live lock'
@@ -324,8 +331,10 @@ done
 rm "$scratch/fail-bin/mv"
 cat > "$scratch/fail-bin/mktemp" <<'EOF'
 #!/usr/bin/env bash
-echo 'injected cursor temporary-file failure' >&2
-exit 1
+case "$*" in
+  */.cursor.XXXXXX) echo 'injected cursor temporary-file failure' >&2; exit 1 ;;
+  *) exec /usr/bin/mktemp "$@" ;;
+esac
 EOF
 chmod +x "$scratch/fail-bin/mktemp"
 expect_exit 2 env PATH="$scratch/fail-bin:$PATH" "$scratch/collab-watch.sh" fixture reviewer --once
@@ -397,6 +406,8 @@ contains "$scratch/command.err" 'branch'
 cmp -s "$board" "$scratch/claim-before" || fail 'malformed acceptance changed owner'
 expect_exit 1 "$scratch/collab-say.sh" fixture verifier 23 CLAIM 'on branch x in worktree /tmp/y'
 cmp -s "$board" "$scratch/claim-before" || fail 'prose acceptance changed owner'
+expect_exit 1 "$scratch/collab-say.sh" fixture verifier 23 CLAIM 'I accept this implementation'
+cmp -s "$board" "$scratch/claim-before" || fail 'incomplete acceptance changed owner'
 "$scratch/collab-say.sh" fixture verifier 23 CLAIM 'reviewing abc1234'
 cmp -s "$board" "$scratch/claim-before" || fail 'ordinary review claim accepted scope'
 "$scratch/collab-board.sh" fixture update 23 notes 'delegated to verifier (awaiting CLAIM); see file:12'
@@ -410,6 +421,7 @@ pass 'malformed named-delegate acceptance fails visibly; review claims stay log-
 
 cp "$board" "$scratch/file-claim-before"
 "$scratch/collab-say.sh" fixture implementer 999 CLAIM 'files: a.go, b.go'
+"$scratch/collab-say.sh" fixture implementer 999 CLAIM 'files: branch.ts, docs/worktree.md'
 "$scratch/collab-say.sh" fixture implementer 9 CLAIM 'files: deferred.go'
 cmp -s "$board" "$scratch/file-claim-before" || fail 'ordinary file claim changed board'
 contains "$log" '#999 CLAIM files: a.go, b.go'

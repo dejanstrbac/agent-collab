@@ -2,6 +2,7 @@
 # collab-watch.sh <slug> <role> [--once | --wait [seconds]] [--consumer <name>]
 # One reader per cursor. Independent consumers receive independent copies.
 set -euo pipefail
+export LC_ALL=C
 
 usage() { echo "usage: $0 <slug> <role> [--once | --wait [seconds]] [--consumer <name>]" >&2; exit 2; }
 [ $# -ge 2 ] || usage
@@ -45,10 +46,18 @@ cursor="$session/.cursor-$role"
 
 lock="$cursor.lock"
 locked=0
+owner=""
 tmp=""
 cleanup() {
-  [ -z "$tmp" ] || rm -f "$tmp"
-  if [ "$locked" -eq 1 ]; then rmdir "$lock"; fi
+  local result=$?
+  trap - EXIT
+  [ -z "$tmp" ] || rm -f "$tmp" || true
+  if [ "$locked" -eq 1 ] && [ -n "$owner" ] && [ -f "$owner" ]; then
+    if rm -f "$owner"; then
+      rmdir "$lock" 2>/dev/null || { echo "watch lock cleanup incomplete: $lock; inspect before recovery" >&2 || true; }
+    fi
+  fi
+  exit "$result"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -62,12 +71,14 @@ timeout=$((10#$timeout))
 started=$(date +%s)
 until mkdir "$lock" 2>/dev/null; do
   if [ $(( $(date +%s) - started )) -ge "$timeout" ]; then
-    echo "watch cursor lock timed out: $lock; observe the existing reader or use --consumer" >&2
+    echo "watch cursor lock timed out: $lock; inspect owner.* for its PID and confirm the holder stopped before recovery; --consumer replays history" >&2
     exit 1
   fi
   sleep 1
 done
 locked=1
+owner=$(mktemp "$lock/owner.XXXXXX")
+printf 'pid=%s\n' "$$" > "$owner"
 
 seen=0
 if [ -e "$cursor" ] && [ ! -f "$cursor" ]; then

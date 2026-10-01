@@ -2,6 +2,8 @@
 # collab-say.sh <slug> <role> <item|-> <STATUS> [text...]
 # A logged message is retained if projecting its result onto the board fails.
 set -euo pipefail
+# Session text is bytes; malformed UTF-8 must not break parsing or logging.
+export LC_ALL=C
 [ $# -ge 4 ] || { echo "usage: $0 <slug> <role> <item|-> <STATUS> [text...]" >&2; exit 2; }
 slug=$1 role=$2 item=${3#\#} status=$4; shift 4
 [[ $slug =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "invalid session slug" >&2; exit 2; }
@@ -17,7 +19,17 @@ log="$kit/sessions/$slug/chat.log"
 # its reply cannot overtake the board state of the message it answers.
 lock="$kit/sessions/$slug/.say.lock"
 locked=0
-cleanup() { if [ "$locked" -eq 1 ]; then rmdir "$lock"; fi; }
+owner=""
+cleanup() {
+  local result=$?
+  trap - EXIT
+  if [ "$locked" -eq 1 ] && [ -n "$owner" ] && [ -f "$owner" ]; then
+    if rm -f "$owner"; then
+      rmdir "$lock" 2>/dev/null || { echo "message lock cleanup incomplete: $lock; inspect before recovery" >&2 || true; }
+    fi
+  fi
+  exit "$result"
+}
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -30,12 +42,14 @@ timeout=$((10#$timeout))
 started=$(date +%s)
 until mkdir "$lock" 2>/dev/null; do
   if [ $(( $(date +%s) - started )) -ge "$timeout" ]; then
-    echo "message lock timed out: $lock; no message was appended and the existing lock was left intact" >&2
+    echo "message lock timed out: $lock; inspect owner.* for its PID and confirm the holder stopped before recovery; no message was appended" >&2
     exit 1
   fi
   sleep 1
 done
 locked=1
+owner=$(mktemp "$lock/owner.XXXXXX")
+printf 'pid=%s\n' "$$" > "$owner"
 
 text=""
 if [ $# -gt 0 ]; then text=$(printf '%s ' "$@" | tr '\n\r' '  ' | sed 's/ *$//'); fi
@@ -47,7 +61,7 @@ fi
 
 extract_hash() {
   printf '%s\n' "$1" | awk '
-    { gsub(/[^0-9a-fA-F]/, " "); for (i=1; i<=NF; i++) if (length($i)>=7 && length($i)<=40) { print $i; found=1; exit } }
+    { gsub(/[^[:alnum:]_]/, " "); for (i=1; i<=NF; i++) if ($i ~ /^[0-9a-fA-F]+$/ && length($i)>=7 && length($i)<=40) { print $i; found=1; exit } }
     END { if (!found) exit 1 }
   '
 }
@@ -76,6 +90,9 @@ case $status in
     project review "$item" "$role" "$hash" "$verdict"
     ;;
   DELEGATE\(*)
+    [ "$role" = implementer ] || {
+      echo "message logged, but only the implementer may offer a delegation" >&2; exit 1;
+    }
     to=$(printf '%s\n' "$status" | sed -n 's/^DELEGATE(\([^)]*\))$/\1/p')
     project delegate "$item" "$to"
     ;;
@@ -83,7 +100,8 @@ case $status in
     project claim "$item" "$role" "$text"
     ;;
   DEFERRED*|DEFER)
-    reason=$(printf '%s\n' "$status" | sed -n 's/.*(\(.*\)).*/\1/p')
+    reason=""
+    case $status in *\(*\)) reason=${status#*(}; reason=${reason%)} ;; esac
     [ -n "$reason" ] || reason=$text
     [ -n "$reason" ] || reason=Deferred
     project defer "$item" "$reason" "$role"

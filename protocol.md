@@ -180,9 +180,14 @@ review. Delegation moves the writing, never the acceptance.
    the integrated hash as a new GREEN merely because its commit ID changed. A conflict
    resolution or adaptation changes the implementation: post a new GREEN and obtain two
    non-author approvals for it. Final verification still runs on the integrated head.
+   Successful integration completes the handback of the reviewed scope. After confirming
+   that writing has stopped, the implementer clears its delegation Notes with
+   `collab-board.sh <slug> update <item> notes ""`; keep the ownership history in chat.
 6. **Withdraw.** Either side may end a delegation with an `FYI` saying why. Coordinate the stop and acknowledge the
    handback before resuming edits; a withdrawal message alone does not prove a live job stopped.
    The item returns to the implementer with whatever is committed.
+   After confirmed handback, the implementer clears the delegation Notes with the same
+   board command before offering the item again; FYI alone does not clear ownership state.
    If the delegate cannot answer, report owner, last committed state, observed job evidence
    and the missing stop/handback to the user. Ask for a decision to stop or reassign when
    needed. A directly observed terminal job permits recording its stopped state; an

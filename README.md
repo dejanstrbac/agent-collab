@@ -243,7 +243,9 @@ The two non-author reviews cover the named implementation hashes. Integration is
 as FYI with the integrated hash, reviewed hashes and patch-comparison evidence. A clean
 merge or cherry-pick with the same patches inherits those reviews; conflict resolution or
 adaptation is a new GREEN requiring two non-author approvals. Final verification runs on
-the actual integrated head. Obtain all parties' deferral agreement in chat before moving
+the actual integrated head. After confirmed stop/handback on integration or withdrawal,
+the implementer clears delegation Notes before another offer; FYI alone is log-only.
+Obtain all parties' deferral agreement in chat before moving
 the row; a DEFERRED post alone records only its poster, not everyone's consent.
 
 Run the isolated shell smoke checks with `bash test/smoke.sh`; they create synthetic sessions

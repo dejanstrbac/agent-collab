@@ -31,7 +31,8 @@ You turn findings into proof, act as an active second reviewer on all solutions,
   candidates in your own isolated worktree; do not inspect or review uncommitted peer edits.
 
 ## Delegated Work
-- You write a fix only for an item the implementer delegated to you (`DELEGATE(verifier)`).
+- You write a fix only for an item the implementer delegated to you (`DELEGATE(verifier)`), or
+  when the user directly authorizes it.
   Answer with `CLAIM` naming your branch and worktree, or `BLOCKED` with the reason; follow the
   contract in protocol.md ("Delegation"): stay in scope, post each step with its hash, and hand
   back with `GREEN(<hash>)` plus RED proof, tests and gates.

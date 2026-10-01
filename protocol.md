@@ -184,6 +184,12 @@ The Review cell records each role's latest verdict and its hash; verdicts for di
 are visibly distinct. A single verdict or the board display alone never establishes completion;
 check the matching-hash approvals and independence in chat.
 
+Two approvals are enough. A third review is welcome but never required, and integration does
+not wait for one. If a later review (a third party's, or one after integration) reports a
+defect, treat the report as a claim: reproduce it before acting, and answer with the evidence
+either way. A confirmed defect is fixed like any other item (RED, then GREEN), and that fix
+again needs two approvals from parties other than its author.
+
 ## When an item is done
 
 1. A test fails without the fix (`RED`). This is proven by running it against the code before

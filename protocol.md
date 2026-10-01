@@ -45,21 +45,78 @@ All messages go through `<KIT>/sessions/<slug>/chat.log`. Status lives on `board
 it. Use the absolute paths from the board: they are shared by every worktree.
 
 - **Post** with `<KIT>/collab-say.sh <slug> <role> <item|-> <STATUS> [text...]`. It appends one
-  line to `chat.log` and automatically updates the corresponding status columns in `board.md`.
+  line to `chat.log`. RED, GREEN, review and deferral results also update `board.md`; claims,
+  dependency reports and delegation requests remain in the log. A board update failure is
+  visible and returns nonzero even though the message was logged. Read the error before
+  retrying, so you do not accidentally post the same message twice.
 - **Add new issues** with `<KIT>/collab-board.sh <slug> add <item> <severity> "<scenario>"`.
 - **Defer agreed issues** with `<KIT>/collab-board.sh <slug> defer <item> "<reason>" "<agreed_by>"` or `collab-say.sh <slug> <role> <item> 'DEFERRED(<reason>)'`.
 - **Listen** by running `<KIT>/collab-watch.sh <slug> <role>`. It tracks read position in
   `<KIT>/sessions/<slug>/.cursor-<role>`, so late-starting or restarted agents never miss history.
-  - In background watchers: run `collab-watch.sh <slug> <role>` continuously.
-  - In tool-calling/polling turns: run `collab-watch.sh <slug> <role> --wait [seconds]` to block until peer replies, or `--once` to check immediately.
+  - In tool-calling turns: run `collab-watch.sh <slug> <role> --wait 30` to listen for peer
+    replies, or `--once` to check immediately. Observe the output; if the tool returns a
+    running process handle, resume that handle rather than starting a competing reader.
+  - Use only one reader per cursor. For an independent reader, add `--consumer <name>`;
+    it has its own cursor and receives its own copy of peer messages. Background output
+    must be delivered to the agent before that reader can replace foreground listening.
+    Starting a shell watcher alone does not schedule a new agent turn.
 - Line format: `[role] #<item> <STATUS> <text>`
   STATUS is one of: `CLAIM`, `RED(<hash>)`, `GREEN(<hash>)`, `REVIEW-OK(<hash>)`,
-  `REVIEW-CHANGES(<hash>)`, `DELEGATE(<role>)`, `DEFERRED(<reason>)`, `BLOCKED`, `FYI`, `DONE`. Use `#-` when no item applies.
+  `REVIEW-CHANGES(<hash>)`, `DELEGATE(<role>)`, `REQUEST-DELEGATE(<role>)`,
+  `DEFERRED(<reason>)`, `BLOCKED`, `FYI`, `DONE`. Use `#-` when no item applies.
 - Cite a commit hash for any code you refer to. Nobody reviews or comments on uncommitted work.
 - `board.md` has one row per issue. `collab-say.sh` updates standard statuses automatically; edit
   only the cells your role owns if making manual adjustments.
 - Say nothing when you have nothing to add. No acknowledgements, no thanks, no recaps.
 - New facts from the user or from production go into `chat.log` as `FYI` straight away.
+
+## Dependencies and listening
+
+An empty review queue or an unchanged branch does not prove that peer work stopped. Check
+unread chat and committed branch heads, then identify the next useful action. Distinguish
+peer-reported activity from a process whose live handle you can observe. A missing handle
+does not authorize restarting a peer or taking over its files.
+
+When another role must supply a fix, decision, reproduction or handoff, notify that owner
+once with an actionable dependency report:
+
+```text
+[reviewer] #7 BLOCKED owner=implementer dependency=committed repair for #7 next=post fix hash or delegate bounded implementation evidence=<RED hash>
+```
+
+Use `#-` for a session dependency. State the owner, the missing dependency, the exact next
+action and the evidence. Update the report when something changes, rather than repeating
+the same status. This reports a role's dependency; it does not declare the session done or
+change the host's goal status.
+
+If you can implement a bounded item safely, ask for a handoff:
+
+```text
+[reviewer] #7 REQUEST-DELEGATE(reviewer) base=<hash> files=<paths> scope=<bounded repair> next=confirm handoff and stop overlapping edits
+```
+
+The implementer answers at its next coordination opportunity, either with
+`DELEGATE(reviewer)` containing the item, base hash, files and acceptance criteria, or with
+`FYI decision=retain owner=implementer reason=<reason> next=<concrete next action>`.
+A substantive ownership answer is required coordination, not an empty acknowledgement.
+A request, silence or elapsed time does not transfer ownership. The recipient claims the
+files only after an explicit handoff or direct user authorization.
+
+While waiting, keep listening through bounded observed tool calls and do independent
+useful work when available. Do not manufacture progress by repeating checks or writing
+status recaps. A watch timeout proves only that no message arrived in that interval; a live
+listener does not prove a peer is running or make the dependency productive progress.
+Follow the host's progress, verified-wait and blocked-goal rules. Before declaring a true
+impasse, inform the implementer and request the missing action or a bounded delegation.
+If listening must continue across turns, use only a host-supported wakeup mechanism that
+is available and authorized; do not assume a background shell process or raw cron entry
+will wake the agent. A blocked role must name what will resume it and must not imply that
+the implementer's work or the overall session has completed.
+
+Diagnostics, reproduction tests and evidence gathering may proceed in your own isolated
+worktree. Production edits require the role's ownership, an explicit delegation or direct
+user authorization. Never review uncommitted peer edits. A delegated fix must receive an
+independent verdict from another role; its author cannot approve their own fix.
 
 ## When an item is done
 

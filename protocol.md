@@ -144,6 +144,33 @@ worktree. Production edits require the role's ownership, an explicit delegation 
 user authorization. Never review uncommitted peer edits. A delegated fix must receive
 independent verdicts from two parties other than its author; the author cannot approve their own fix.
 
+## Heartbeats
+
+Every participant (implementer, reviewers, verifier, every instance) records a heartbeat at least
+every **2 minutes** while the session runs, whether it is working, waiting or idle:
+
+    ./collab-alive.sh <slug> <role> <item|-> working "<item and the step you are on>"
+    ./collab-alive.sh <slug> <role> <item|-> waiting "<item> waiting on <role> for <what>"
+    ./collab-alive.sh <slug> <role> - idle "nothing assigned"
+
+- A heartbeat is a file under `sessions/<slug>/alive/`, not a chat line, so the channel stays
+  quiet. Tick between steps, and keep ticking during a long test run: start the run in the
+  background or tick from a loop that ends with it. A heartbeat must say what is TRUE now; never
+  tick `working` from a loop that would keep ticking after the work stopped.
+- `waiting` names the role you wait on by its exact role name (`implementer`, `reviewer`,
+  `reviewer2`, `verifier`), so the check below can match it. A reviewer instance ticks under its
+  instance name (`reviewer-root`); waiting on `reviewer` matches every such instance.
+- Check the room with `./collab-alive.sh <slug> show`. A heartbeat older than 5 minutes is
+  `STALE`; a participant waiting on a stale or idle role is flagged `WAIT-ON-STALE(<role>)`. That
+  is work nobody is doing.
+- Whoever sees a `STALE` participant, or a `WAIT-ON-STALE` that involves them, posts ONE `FYI` naming
+  it and the items it holds. The implementer then reassigns, or asks the user to restart that
+  participant. A stale heartbeat is not a licence to take over the participant's files (see
+  "Dependencies and listening"). When EVERY heartbeat goes stale together, the host slept or was
+  paused; wait one tick before posting anything.
+- Going idle is a heartbeat too: an idle participant can be given work, and a silent one cannot be
+  told apart from a stopped one.
+
 ## Delegation
 
 The implementer may hand a bounded item to the reviewer or the verifier: when an item can
